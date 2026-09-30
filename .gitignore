@@ -4,4 +4,4 @@ spike/netprobe/netprobe-armv7
 .superpowers/
 *.test
 .env.local
-docs/superpowers/
+docs/claude/superpowers/
