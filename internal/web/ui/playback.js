@@ -1,33 +1,47 @@
-import { h, api, showError } from './dom.js';
-import { DAY_MS, blocks, clock, cloudSpans, dayStart, eventSpans, isoAt, nextChunk, offsetOf, playFrom, spanAt, toSpans, todayIn } from './lib.js';
+import { h, api, icon, pageHead, emptyState, showError } from './dom.js';
+import { DAY_MS, blocks, clock, cloudSpans, dayStart, eventSpans, isoAt, nextChunk, offsetOf, playFrom, plural, spanAt, toSpans, todayIn } from './lib.js';
 
 const CHUNK_S = 600; // each <video> source is 10 minutes; the next one loads when it ends
 const HOUR_MS = 3600 * 1000;
+
+// longDate shows a phone-local date (YYYY-MM-DD) in words, e.g. "Wed, 1 Oct 2026". Noon UTC of
+// that date is the same calendar day in every timezone.
+const longDate = (date) => new Date(`${date}T12:00:00Z`).toLocaleDateString(undefined,
+  { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric', timeZone: 'UTC' });
 
 // renderPlayback shows a 24 h timeline (zoomable to 1 h) of what a camera recorded on a day, in
 // the phone's local time. Clicking plays from that moment and continues chunk by chunk.
 export async function renderPlayback(root) {
   const [cams, st] = await Promise.all([api('/api/cameras'), api('/api/status')]);
   if (cams.length === 0) {
-    root.append(h('p', { class: 'empty' }, 'No cameras yet.'));
+    root.append(pageHead('Playback', ''), emptyState('i-playback', 'No cameras yet.',
+      h('a', { class: 'button primary', href: '#/cameras' }, icon('i-plus'), 'Add camera')));
     return () => {};
   }
   const off = offsetOf(st.time);
   const state = { cam: cams[0].id, date: todayIn(off), spans: [], events: [], cloud: [], winStart: 0, winLen: DAY_MS, playhead: null };
   let chunkStart = null;
 
-  const camSel = h('select', { onchange: () => { state.cam = camSel.value; load(); } },
+  const camSel = h('select', { 'aria-label': 'Camera', onchange: () => { state.cam = camSel.value; load(); } },
     cams.map((c) => h('option', { value: c.id }, c.name)));
-  const dateIn = h('input', { type: 'date', value: state.date, onchange: () => { state.date = dateIn.value; load(); } });
-  const prevBtn = h('button', { onclick: () => shift(-1), hidden: true, title: 'Previous hour' }, '◀');
+  const dateIn = h('input', { type: 'date', 'aria-label': 'Day', value: state.date, onchange: () => { state.date = dateIn.value; load(); } });
+  const prevBtn = h('button', { class: 'icon-btn', onclick: () => shift(-1), hidden: true, 'aria-label': 'Previous hour' }, icon('i-chevron-left'));
   const zoomBtn = h('button', { onclick: () => zoom() }, 'Zoom to 1 h');
-  const nextBtn = h('button', { onclick: () => shift(1), hidden: true, title: 'Next hour' }, '▶');
+  const nextBtn = h('button', { class: 'icon-btn', onclick: () => shift(1), hidden: true, 'aria-label': 'Next hour' }, icon('i-chevron-right'));
+  const head = pageHead('Playback', '', camSel, dateIn, prevBtn, zoomBtn, nextBtn);
+  const sub = head.querySelector('.sub');
+  const video = h('video', { class: 'player', controls: true, playsinline: true });
   const bar = h('div', { class: 'timeline', onclick: (e) => click(e) });
   const ticks = h('div', { class: 'ticks' });
+  const cloudKey = h('span', { class: 'cloud', hidden: true }, 'In the cloud');
+  const dlText = h('span', {}, 'Download these 10 minutes');
+  const download = h('a', { class: 'button', hidden: true, download: '' }, icon('i-download'), dlText);
   const label = h('p', { class: 'muted' }, 'Click the timeline to play.');
-  const video = h('video', { class: 'player', controls: true, playsinline: true });
-  const download = h('a', { class: 'button', hidden: true, download: '' }, 'Download these 10 minutes');
-  root.append(h('div', { class: 'toolbar' }, camSel, dateIn, prevBtn, zoomBtn, nextBtn), bar, ticks, label, video, download);
+  root.append(head, video, bar, ticks,
+    h('div', { class: 'play-foot' },
+      h('div', { class: 'legend' }, h('span', {}, 'Recorded'), h('span', { class: 'motion' }, 'Motion'), cloudKey),
+      download),
+    label);
 
   async function load() {
     state.winStart = dayStart(state.date, off);
@@ -40,7 +54,7 @@ export async function renderPlayback(root) {
     } catch (err) {
       state.spans = [];
       state.events = [];
-      showError(root, err);
+      if (err.message !== 'signed out') showError(err);
     }
     state.cloud = [];
     shown();
@@ -61,8 +75,11 @@ export async function renderPlayback(root) {
 
   function shown() {
     const n = state.events.length;
+    const cam = cams.find((c) => c.id === state.cam);
+    sub.textContent = `${cam ? cam.name : state.cam} · ${longDate(state.date)}`;
     label.textContent = !state.spans.length && !state.cloud.length ? 'No recordings on this day.'
-      : `Click the timeline to play.${n ? ` ${n} motion event${n === 1 ? '' : 's'} (red marks).` : ''}${state.cloud.length ? ' Green: copies in the cloud.' : ''}`;
+      : `Click the timeline to play.${n ? ` ${plural(n, 'motion event')}.` : ''}`;
+    cloudKey.hidden = !state.cloud.length;
     draw();
   }
 
@@ -134,7 +151,7 @@ export async function renderPlayback(root) {
     video.play().catch(() => {});
     download.href = `/api/playback/video?${q}&format=mp4`;
     download.hidden = false;
-    download.textContent = 'Download these 10 minutes';
+    dlText.textContent = 'Download these 10 minutes';
     label.textContent = `Playing from ${clock(from, off)}`;
   }
 
@@ -145,7 +162,7 @@ export async function renderPlayback(root) {
     video.addEventListener('loadedmetadata', () => { video.currentTime = Math.max(0, (t - c.from) / 1000); }, { once: true });
     video.play().catch(() => {});
     download.href = `${url}&download=1`;
-    download.textContent = 'Download this cloud clip';
+    dlText.textContent = 'Download this cloud clip';
     download.hidden = false;
     label.textContent = `Playing the cloud copy from ${clock(t, off)}`;
   }
