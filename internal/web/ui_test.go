@@ -3,7 +3,9 @@ package web
 import (
 	"encoding/json"
 	"image/png"
+	"io/fs"
 	"net/http"
+	"regexp"
 	"strings"
 	"testing"
 )
@@ -91,6 +93,42 @@ func TestBrandAndPWAFilesServed(t *testing.T) {
 	for _, bad := range []string{"<script", "<style", "style="} {
 		if strings.Contains(off, bad) {
 			t.Errorf("offline.html contains %q (the CSP blocks it)", bad)
+		}
+	}
+}
+
+// index.html links the logo, the app icons and the manifest, and every icon the views draw exists
+// in its sprite (a missing symbol would silently draw nothing).
+func TestIndexLinksIconsAndSprite(t *testing.T) {
+	e := newEnv(t)
+	idx := e.do("GET", "/", "").Body.String()
+	for _, want := range []string{
+		`<link rel="icon" type="image/svg+xml" href="/logo.svg">`,
+		`<link rel="apple-touch-icon" href="/apple-touch-icon.png">`,
+		`<link rel="manifest" href="/manifest.json">`,
+		`href="https://github.com/pritamkarar/camorage"`,
+	} {
+		if !strings.Contains(idx, want) {
+			t.Errorf("index.html lacks %s", want)
+		}
+	}
+	used := map[string]string{}
+	for _, m := range regexp.MustCompile(`<use href="#([a-z0-9-]+)"`).FindAllStringSubmatch(idx, -1) {
+		used[m[1]] = "index.html"
+	}
+	files, _ := fs.Glob(uiFiles, "ui/*.js")
+	for _, f := range files {
+		b, _ := uiFiles.ReadFile(f)
+		for _, m := range regexp.MustCompile(`icon\('([a-z0-9-]+)'`).FindAllStringSubmatch(string(b), -1) {
+			used[m[1]] = f
+		}
+	}
+	if len(used) == 0 {
+		t.Fatal("no icons found: the sprite is not used")
+	}
+	for id, where := range used {
+		if !strings.Contains(idx, `<symbol id="`+id+`"`) {
+			t.Errorf("%s draws icon %q, which index.html's sprite lacks", where, id)
 		}
 	}
 }

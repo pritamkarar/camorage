@@ -2,25 +2,68 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="color-scheme" content="light dark">
+<meta name="theme-color" content="#ffffff" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#0e1429" media="(prefers-color-scheme: dark)">
 <title>camorage</title>
-<link rel="icon" href="data:,">
+<link rel="icon" type="image/svg+xml" href="/logo.svg">
+<link rel="apple-touch-icon" href="/apple-touch-icon.png">
+<link rel="manifest" href="/manifest.json">
 <link rel="stylesheet" href="/app.css">
 <script src="/vendor/hls.min.js" defer></script>
 <script type="module" src="/app.js"></script>
 </head>
 <body>
-<header id="bar" hidden>
-  <span class="brand">camorage</span>
-  <nav>
-    <a href="#/live">Live</a>
-    <a href="#/playback">Playback</a>
-    <a href="#/cameras">Cameras</a>
-    <a href="#/storage">Storage</a>
-    <a href="#/settings">Settings</a>
+<svg class="sprite" aria-hidden="true" focusable="false">
+  <symbol id="logo" viewBox="0 0 64 64"><rect width="64" height="64" rx="15" fill="currentColor"/><circle cx="32" cy="32" r="17" fill="none" stroke="#fff" stroke-width="7"/><circle cx="32" cy="32" r="6.5" fill="#ef4444"/></symbol>
+  <symbol id="lens" viewBox="0 0 64 64"><circle cx="32" cy="32" r="25" fill="none" stroke="currentColor" stroke-width="11"/><circle cx="32" cy="32" r="10" fill="#ef4444"/></symbol>
+  <symbol id="i-live" viewBox="0 0 24 24"><rect x="3" y="6" width="12" height="12" rx="2"/><path d="M15 10l6-3v10l-6-3"/></symbol>
+  <symbol id="i-playback" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></symbol>
+  <symbol id="i-cameras" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="3.5"/></symbol>
+  <symbol id="i-storage" viewBox="0 0 24 24"><ellipse cx="12" cy="6" rx="8" ry="3"/><path d="M4 6v12c0 1.7 3.6 3 8 3s8-1.3 8-3V6M4 12c0 1.7 3.6 3 8 3s8-1.3 8-3"/></symbol>
+  <symbol id="i-settings" viewBox="0 0 24 24"><path d="M4 6h9M17 6h3M4 12h3M11 12h9M4 18h11M19 18h1"/><circle cx="15" cy="6" r="2"/><circle cx="9" cy="12" r="2"/><circle cx="17" cy="18" r="2"/></symbol>
+  <symbol id="i-cloud" viewBox="0 0 24 24"><path d="M7 18h10a4 4 0 0 0 .5-8A6 6 0 0 0 6 9a4.5 4.5 0 0 0 1 9z"/></symbol>
+  <symbol id="i-download" viewBox="0 0 24 24"><path d="M12 4v11M7 10l5 5 5-5M5 20h14"/></symbol>
+  <symbol id="i-plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></symbol>
+  <symbol id="i-scan" viewBox="0 0 24 24"><path d="M4 8V5a1 1 0 0 1 1-1h3M16 4h3a1 1 0 0 1 1 1v3M20 16v3a1 1 0 0 1-1 1h-3M8 20H5a1 1 0 0 1-1-1v-3"/><circle cx="12" cy="12" r="3"/></symbol>
+  <symbol id="i-close" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></symbol>
+  <symbol id="i-chevron-left" viewBox="0 0 24 24"><path d="M15 6l-6 6 6 6"/></symbol>
+  <symbol id="i-chevron-right" viewBox="0 0 24 24"><path d="M9 6l6 6-6 6"/></symbol>
+  <symbol id="i-external" viewBox="0 0 24 24"><path d="M14 4h6v6M20 4l-9 9M18 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h5"/></symbol>
+  <symbol id="i-github" viewBox="0 0 16 16"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></symbol>
+</svg>
+<div id="shell" hidden>
+  <aside class="sidebar">
+    <a class="home" href="#/live"></a>
+    <nav class="nav" aria-label="Pages">
+      <a href="#/live"><svg class="icon" aria-hidden="true"><use href="#i-live"/></svg>Live</a>
+      <a href="#/playback"><svg class="icon" aria-hidden="true"><use href="#i-playback"/></svg>Playback</a>
+      <a href="#/cameras"><svg class="icon" aria-hidden="true"><use href="#i-cameras"/></svg>Cameras</a>
+      <a href="#/storage"><svg class="icon" aria-hidden="true"><use href="#i-storage"/></svg>Storage</a>
+      <a href="#/settings"><svg class="icon" aria-hidden="true"><use href="#i-settings"/></svg>Settings</a>
+    </nav>
+    <div class="side-foot">
+      <div class="disk">
+        <div class="disk-text"><span>Storage</span><b id="disk-text">…</b></div>
+        <div class="meter"><i id="disk-fill"></i></div>
+      </div>
+      <a class="github" href="https://github.com/pritamkarar/camorage" target="_blank" rel="noopener">
+        <svg class="gh-mark" aria-hidden="true"><use href="#i-github"/></svg>
+        <span><b>Star on GitHub</b><small id="side-version">camorage</small></span>
+        <span class="star" aria-hidden="true">★</span>
+      </a>
+    </div>
+  </aside>
+  <header class="topbar"><a class="home" href="#/live"></a></header>
+  <nav class="tabbar" aria-label="Pages">
+    <a href="#/live"><svg class="icon" aria-hidden="true"><use href="#i-live"/></svg><span>Live</span></a>
+    <a href="#/playback"><svg class="icon" aria-hidden="true"><use href="#i-playback"/></svg><span>Playback</span></a>
+    <a href="#/cameras"><svg class="icon" aria-hidden="true"><use href="#i-cameras"/></svg><span>Cameras</span></a>
+    <a href="#/storage"><svg class="icon" aria-hidden="true"><use href="#i-storage"/></svg><span>Storage</span></a>
+    <a href="#/settings"><svg class="icon" aria-hidden="true"><use href="#i-settings"/></svg><span>Settings</span></a>
   </nav>
-</header>
+</div>
 <main id="view"><p class="muted">Loading…</p></main>
 </body>
 </html>
