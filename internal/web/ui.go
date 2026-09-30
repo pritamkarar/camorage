@@ -6,9 +6,10 @@ import (
 	"net/http"
 )
 
-// The single-page app. vendor/hls.min.js is hls.js 1.7.3 (Apache-2.0). *.mjs tests are not embedded.
+// The single-page app, its logo and app icons, and the PWA files (manifest.json, sw.js,
+// offline.html). vendor/hls.min.js is hls.js 1.7.3 (Apache-2.0). *.mjs tests are not embedded.
 //
-//go:embed ui/*.html ui/*.css ui/*.js ui/vendor/*.js
+//go:embed ui/*.html ui/*.css ui/*.js ui/*.svg ui/*.png ui/*.json ui/vendor/*.js
 var uiFiles embed.FS
 
 // uiHandler serves the app. "private, no-cache" makes browsers ask again on every load and keeps
