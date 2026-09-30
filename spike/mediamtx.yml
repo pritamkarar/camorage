@@ -1,0 +1,30 @@
+logLevel: info
+api: yes
+apiAddress: :9997
+playback: yes
+playbackAddress: :9996
+rtspAddress: :8554
+rtmp: no
+srt: no
+hlsAddress: :8888
+webrtcAddress: :8889
+webrtcLocalUDPAddress: :8189
+webrtcLocalTCPAddress: :8189
+webrtcAdditionalHosts: []
+pathDefaults:
+  recordFormat: fmp4
+  recordPartDuration: 1s
+  recordSegmentDuration: 1m
+  recordDeleteAfter: 0s
+  recordPath: /storage/1234-ABCD/Android/data/com.termux/files/spike-rec/%path/%Y-%m-%d_%H-%M-%S-%f
+paths:
+  cam1:
+    source: rtsp://192.168.1.129/live/ch00_0
+    rtspTransport: tcp
+    record: yes
+  cam1_sub:
+    source: rtsp://192.168.1.129/live/ch00_1
+    rtspTransport: tcp
+  deadcam:
+    source: rtsp://192.168.1.250/nothing
+    rtspTransport: tcp
