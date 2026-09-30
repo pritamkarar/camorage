@@ -26,13 +26,14 @@ self.addEventListener('fetch', (e) => {
     // a 5xx is a proxy saying the phone is gone (Cloudflare answers 502/530 when the tunnel is down)
     e.respondWith(fetch(req).then((res) => (res.status >= 500 ? offline() : res)).catch(offline));
   } else if (FILES.includes(url.pathname)) {
-    // network first, so the cached copies stay current; the cache only when the network fails
+    // network first, so the cached copies stay current; the cache when the network fails or a
+    // proxy answers for the phone (the offline page would be unstyled otherwise). offline.html
+    // itself is only fetched again when this file changes and the worker reinstalls.
     e.respondWith(fetch(req)
       .then((res) => {
-        if (res.ok) {
-          const copy = res.clone();
-          caches.open(CACHE).then((c) => c.put(url.pathname, copy));
-        }
+        if (!res.ok) return caches.match(url.pathname).then((c) => c || res);
+        const copy = res.clone();
+        caches.open(CACHE).then((c) => c.put(url.pathname, copy));
         return res;
       })
       .catch(() => caches.match(url.pathname)));

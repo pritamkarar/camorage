@@ -2,7 +2,7 @@
    use only tokens. The CSP allows no inline styles, so per-element geometry (timeline spans,
    meters) is set from JS through CSSOM. One breakpoint: phones are narrower than 760px. */
 :root {
-  --bg: #f5f6fa; --surface: #ffffff; --sidebar: #ffffff; --fg: #111827; --muted: #6b7280; --line: #e5e7eb;
+  --bg: #f5f6fa; --surface: #ffffff; --sidebar: #ffffff; --fg: #111827; --muted: #667080; --line: #e5e7eb;
   --accent: #4f46e5; --accent-fg: #ffffff; --accent-soft: #eef0ff; --accent-soft-fg: #4338ca;
   --ok: #16a34a; --ok-bg: #dcfce7; --warn: #b45309; --warn-bg: #fef3c7; --bad: #dc2626; --bad-bg: #fee2e2;
   --rec: #ef4444; --motion: #f59e0b; --logo: #4f46e5;
@@ -133,7 +133,7 @@ button:disabled { opacity: .55; cursor: default; }
 
 /* forms */
 input, select, textarea { font: inherit; font-size: 14px; color: var(--fg); background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius-sm); padding: 7px 10px; min-height: 36px; max-width: 100%; }
-input:focus, select:focus, textarea:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
+input:not([type=checkbox]):not([type=radio]):focus, select:focus, textarea:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
 input[type=checkbox], input[type=radio] { width: 16px; height: 16px; min-height: 0; margin: 0; padding: 0; accent-color: var(--accent); }
 .field { display: grid; gap: 5px; margin: 0 0 14px; font-size: 13px; font-weight: 600; }
 .field input:not([type=checkbox]):not([type=radio]), .field select { width: 100%; font-weight: 400; }

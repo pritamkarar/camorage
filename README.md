@@ -71,7 +71,7 @@ Built on a laptop with Go 1.27; the phone only runs the result.
 | Command | What it does |
 |---|---|
 | `go test -race ./...` | unit tests |
-| `node --test internal/web/ui/lib.test.mjs` | UI helper tests |
+| `node --test 'internal/web/ui/*.test.mjs'` | UI tests: helpers, the service worker, colour contrast |
 | `scripts/demo.sh` | a portal on this laptop with fake cameras, for UI work (http://127.0.0.1:18090, password `demo-password`) |
 | `scripts/itest.sh` | end-to-end on the laptop: real MediaMTX, a fake camera, motion, cloud copy through rclone 1.50.1 (~10 min) |
 | `scripts/installtest.sh [--quick]` | the installer: download plans, the release build, and install/upgrade/damaged download inside current Termux (docker) |
