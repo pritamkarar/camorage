@@ -1,3 +1,5 @@
+<p align="center"><img src="internal/web/ui/logo.svg" width="96" alt=""></p>
+
 # camorage
 
 A camera recorder and web portal that runs on an old Android phone. Watch your IP cameras live, record them to the phone's SD card, scrub a 24-hour timeline with motion markers, keep a copy in Google Drive or S3-compatible storage, and reach it all from anywhere through Tailscale or a Cloudflare Tunnel.
@@ -43,6 +45,10 @@ Settings → Remote access:
 - **Tailscale** (private, fast, good for watching): turn it on, open the sign-in link it shows, and approve the phone in your tailnet. Your tailnet needs MagicDNS and HTTPS certificates turned on (admin console → DNS). The portal is then at `https://<name>.<tailnet>.ts.net`; the first visit takes about 20 seconds while the certificate is issued.
 - **Cloudflare Tunnel** (a public address on your own domain): in the Cloudflare dashboard create a tunnel (any operating system: only the token matters), add a public hostname pointing to `http://localhost:8080`, and paste the token (or the whole install command) into Settings. Put Cloudflare Access (email one-time codes) in front of it. Cloudflare's free plan is not meant for heavy video: use Tailscale for long viewing.
 
+## Install as an app
+
+Open the portal through its Tailscale or Cloudflare address (HTTPS) and use **Settings → About → Install app**, or your browser's menu (*Install app*; on an iPhone *Share → Add to Home Screen*). camorage then opens in its own window with its own icon, and shows a "Can't reach your camorage phone" page when the phone is off or offline. Browsers install apps only from HTTPS addresses: on the Wi-Fi address (`http://192.168.x.x:8080`) you can still add a home-screen shortcut, but it opens in the browser.
+
 ## Cloud copy
 
 Storage → add a target, then pick it in a camera's settings (Cloud copy: where, and how many days to keep).
@@ -66,6 +72,7 @@ Built on a laptop with Go 1.27; the phone only runs the result.
 |---|---|
 | `go test -race ./...` | unit tests |
 | `node --test internal/web/ui/lib.test.mjs` | UI helper tests |
+| `scripts/demo.sh` | a portal on this laptop with fake cameras, for UI work (http://127.0.0.1:18090, password `demo-password`) |
 | `scripts/itest.sh` | end-to-end on the laptop: real MediaMTX, a fake camera, motion, cloud copy through rclone 1.50.1 (~10 min) |
 | `scripts/installtest.sh [--quick]` | the installer: download plans, the release build, and install/upgrade/damaged download inside current Termux (docker) |
 | `scripts/release.sh <version> [--publish]` | builds the release (arm, arm64, amd64) and with `--publish` creates the GitHub release |
