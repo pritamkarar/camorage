@@ -74,11 +74,6 @@ export function playHLS(video, url) {
   };
 }
 
-// dl renders [label, value] pairs as a definition list.
-export function dl(pairs) {
-  return h('dl', {}, pairs.flatMap(([k, v]) => [h('dt', {}, k), h('dd', {}, v)]));
-}
-
 // icon draws a symbol from the sprite in index.html: icon('i-live'), icon('logo', 'logo').
 export function icon(name, cls = 'icon') {
   const svg = document.createElementNS(SVG_NS, 'svg');
