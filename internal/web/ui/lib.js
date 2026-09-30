@@ -104,25 +104,35 @@ export function streamPaths(cam) {
 }
 
 // tailscaleSummary turns the tailscale part of GET /api/tunnels into one status line, with the
-// link to follow when there is one.
+// link to follow when there is one, and a state for its chip (see tunnelChip).
 export function tailscaleSummary(ts) {
-  if (!ts.enabled) return { text: 'Off.' };
-  if (ts.url) return { text: 'On. The portal on your tailnet:', link: ts.url };
+  if (!ts.enabled) return { text: 'Off.', state: 'off' };
+  if (ts.url) return { text: 'On. The portal on your tailnet:', link: ts.url, state: 'ok' };
   if (ts.state === 'NeedsLogin' && ts.authUrl) {
-    return { text: 'Sign in to add this phone to your tailnet (link expired? turn Tailscale off and on):', link: ts.authUrl };
+    return { text: 'Sign in to add this phone to your tailnet (link expired? turn Tailscale off and on):', link: ts.authUrl, state: 'action' };
   }
-  if (ts.state === 'NeedsMachineAuth') return { text: 'Approve this phone in the Tailscale admin console.' };
-  if (ts.error) return { text: ts.error, error: true };
-  if (ts.state === 'Running') return { text: 'On, but with no HTTPS name: turn on MagicDNS and HTTPS in the Tailscale admin console.' };
-  return { text: 'Starting…' };
+  if (ts.state === 'NeedsMachineAuth') return { text: 'Approve this phone in the Tailscale admin console.', state: 'action' };
+  if (ts.error) return { text: ts.error, error: true, state: 'error' };
+  if (ts.state === 'Running') return { text: 'On, but with no HTTPS name: turn on MagicDNS and HTTPS in the Tailscale admin console.', state: 'action' };
+  return { text: 'Starting…', state: 'starting' };
 }
 
 // cloudflareSummary does the same for the cloudflare part.
 export function cloudflareSummary(cf) {
-  if (!cf.tokenSet) return { text: 'Off.' };
+  if (!cf.tokenSet) return { text: 'Off.', state: 'off' };
   const link = cf.hostname ? `https://${cf.hostname}/` : undefined;
-  if (cf.connected) return { text: 'Connected.', link };
-  return { text: 'Connecting… If this stays, check the token and the tunnel’s public hostname in Cloudflare.', link };
+  if (cf.connected) return { text: 'Connected.', link, state: 'ok' };
+  return { text: 'Connecting… If this stays, check the token and the tunnel’s public hostname in Cloudflare.', link, state: 'starting' };
+}
+
+const TUNNEL_CHIPS = {
+  off: ['Off', 'muted'], ok: ['Connected', 'ok'], action: ['Needs action', 'warn'], starting: ['Connecting', 'warn'], error: ['Error', 'bad'],
+};
+
+// tunnelChip gives the words and colour of a remote-access chip for a summary's state.
+export function tunnelChip(state) {
+  const [text, kind] = TUNNEL_CHIPS[state] || TUNNEL_CHIPS.starting;
+  return { text, kind };
 }
 
 // The motion detection grid: 16×9 blocks, row-major.
@@ -166,4 +176,65 @@ export function cloudSpans(files) {
 // spanAt is the span covering moment t ([from, to)), or null.
 export function spanAt(spans, t) {
   return spans.find((s) => t >= s.from && t < s.to) || null;
+}
+
+// plural counts things: plural(1, 'camera') is "1 camera", plural(2, 'camera') "2 cameras".
+export function plural(n, word) {
+  return `${n} ${word}${n === 1 ? '' : 's'}`;
+}
+
+const gbOf = (mb) => (mb / 1024).toFixed(1);
+
+// diskUse describes how full the recordings storage is, for the sidebar's storage bar. health is
+// the "health" part of GET /api/status. The level turns warn above 85 % used and bad above 95 %.
+export function diskUse(health) {
+  if (health.diskErr) return { text: `error: ${health.diskErr}`, pct: 0, level: 'bad' };
+  const total = health.diskTotalMB;
+  if (!(total > 0)) return { text: 'unknown', pct: 0, level: 'ok' };
+  const used = Math.max(0, total - health.diskFreeMB);
+  const pct = Math.min(100, Math.round((used / total) * 100));
+  return { text: `${gbOf(used)} of ${gbOf(total)} GB used`, pct, level: pct > 95 ? 'bad' : pct > 85 ? 'warn' : 'ok' };
+}
+
+// camStatus gives a camera's status chip from its entry in GET /api/status (undefined when there
+// is none): the same words on the Live tiles and the Cameras page.
+export function camStatus(st, enabled = true) {
+  if (!enabled || (st && st.enabled === false)) return { text: 'Disabled', kind: 'muted' };
+  if (!st || !st.available) return { text: 'Offline', kind: 'bad' };
+  if (st.motion) return { text: '● Motion', kind: 'motion' };
+  if (st.recording) return { text: '● REC', kind: 'rec' };
+  return { text: 'Live', kind: 'ok' };
+}
+
+// storageSplit gives the Storage page's bar: the percentage of the disk used by recordings, by
+// other files, and free. s is GET /api/storage.
+export function storageSplit(s) {
+  if (!(s.totalMB > 0)) return { recordings: 0, other: 0, free: 100 };
+  const pct = (mb) => Math.max(0, Math.min(100, (mb / s.totalMB) * 100));
+  const recordings = pct(s.usedMB);
+  const free = pct(s.freeMB);
+  return { recordings, other: Math.max(0, 100 - recordings - free), free };
+}
+
+// cameraSummary is the one line under a camera's name on the Cameras page, e.g.
+// "Continuous · all day · 1 day on the phone · Google Drive, 7 days".
+export function cameraSummary(cam, targets = []) {
+  const when = scheduleSummary(cam.schedule);
+  const parts = [cam.mode === 'motion' ? 'Motion only' : 'Continuous', when === 'Always' ? 'all day' : when,
+    `${plural(cam.localDays, 'day')} on the phone`];
+  if (cam.cloud && cam.cloud.targetId) {
+    const t = targets.find((x) => x.id === cam.cloud.targetId);
+    parts.push(`${t ? t.name : cam.cloud.targetId}, ${plural(cam.cloud.days, 'day')}`);
+  }
+  return parts.join(' · ');
+}
+
+// installChoice says what Settings → About offers for installing camorage as an app: 'installed'
+// (running as the app), 'ready' (the browser offered to install it), 'https' (only an HTTPS address
+// can install it) or 'menu' (the browser's own menu, e.g. Share → Add to Home Screen on an iPhone).
+export function installChoice({ standalone, offered, secure }) {
+  if (standalone) return 'installed';
+  if (offered) return 'ready';
+  if (!secure) return 'https';
+  return 'menu';
 }

@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import {
   DAY_MS, offsetOf, dayStart, todayIn, isoAt, clock, toSpans, blocks, playFrom,
   scheduleSummary, cleanWindows, streamPaths, nextChunk, tailscaleSummary, cloudflareSummary, expandMask, compactMask, cellAt, eventSpans, cloudSpans, spanAt,
+  plural, diskUse, camStatus, storageSplit, cameraSummary, tunnelChip, installChoice,
 } from './lib.js';
 
 const IST = '+05:30';
@@ -72,25 +73,40 @@ test('nextChunk continues after a played chunk and never re-requests an empty on
   assert.equal(nextChunk(spans, 2_900_000, 100_000), null); // after the last span
 });
 
-test('tailscaleSummary names the next step', () => {
-  assert.deepEqual(tailscaleSummary({ enabled: false }), { text: 'Off.' });
-  assert.equal(tailscaleSummary({ enabled: true, state: 'Running', url: 'https://p.t.ts.net/' }).link, 'https://p.t.ts.net/');
+test('tailscaleSummary names the next step and a state for its chip', () => {
+  assert.deepEqual(tailscaleSummary({ enabled: false }), { text: 'Off.', state: 'off' });
+  const on = tailscaleSummary({ enabled: true, state: 'Running', url: 'https://p.t.ts.net/' });
+  assert.equal(on.link, 'https://p.t.ts.net/');
+  assert.equal(on.state, 'ok');
   const s = tailscaleSummary({ enabled: true, state: 'NeedsLogin', authUrl: 'https://login.tailscale.com/a/x' });
   assert.equal(s.link, 'https://login.tailscale.com/a/x');
   assert.match(s.text, /Sign in/);
-  assert.match(tailscaleSummary({ enabled: true, state: 'NeedsMachineAuth' }).text, /Approve/);
+  assert.equal(s.state, 'action');
+  const approve = tailscaleSummary({ enabled: true, state: 'NeedsMachineAuth' });
+  assert.match(approve.text, /Approve/);
+  assert.equal(approve.state, 'action');
+  assert.equal(tailscaleSummary({ enabled: true, state: 'Running' }).state, 'action'); // no HTTPS name
   assert.deepEqual(tailscaleSummary({ enabled: true, state: '', error: 'waiting for tailscaled: x' }),
-    { text: 'waiting for tailscaled: x', error: true });
-  assert.deepEqual(tailscaleSummary({ enabled: true, state: 'Starting' }), { text: 'Starting…' });
+    { text: 'waiting for tailscaled: x', error: true, state: 'error' });
+  assert.deepEqual(tailscaleSummary({ enabled: true, state: 'Starting' }), { text: 'Starting…', state: 'starting' });
 });
 
-test('cloudflareSummary links the public hostname', () => {
-  assert.deepEqual(cloudflareSummary({ tokenSet: false }), { text: 'Off.' });
+test('cloudflareSummary links the public hostname and gives a state', () => {
+  assert.deepEqual(cloudflareSummary({ tokenSet: false }), { text: 'Off.', state: 'off' });
   assert.deepEqual(cloudflareSummary({ tokenSet: true, hostname: 'cams.example.com', connected: true }),
-    { text: 'Connected.', link: 'https://cams.example.com/' });
+    { text: 'Connected.', link: 'https://cams.example.com/', state: 'ok' });
   const c = cloudflareSummary({ tokenSet: true, hostname: '', connected: false });
   assert.equal(c.link, undefined);
   assert.match(c.text, /Connecting/);
+  assert.equal(c.state, 'starting');
+});
+
+test('tunnelChip turns a state into chip words and colour', () => {
+  assert.deepEqual(tunnelChip('off'), { text: 'Off', kind: 'muted' });
+  assert.deepEqual(tunnelChip('ok'), { text: 'Connected', kind: 'ok' });
+  assert.deepEqual(tunnelChip('action'), { text: 'Needs action', kind: 'warn' });
+  assert.deepEqual(tunnelChip('starting'), { text: 'Connecting', kind: 'warn' });
+  assert.deepEqual(tunnelChip('error'), { text: 'Error', kind: 'bad' });
 });
 
 test('ignore masks round-trip between the editor and the API', () => {
@@ -140,4 +156,53 @@ test('spanAt finds the span covering a moment', () => {
   assert.equal(spanAt(spans, 300).file, 'b');
   assert.equal(spanAt(spans, 200), null); // the end is exclusive
   assert.equal(spanAt(spans, 250), null);
+});
+
+test('plural counts things', () => {
+  assert.equal(plural(1, 'camera'), '1 camera');
+  assert.equal(plural(0, 'camera'), '0 cameras');
+  assert.equal(plural(3, 'day'), '3 days');
+});
+
+test('diskUse describes the recordings storage for the sidebar bar', () => {
+  assert.deepEqual(diskUse({ diskFreeMB: 6246, diskTotalMB: 16282 }), { text: '9.8 of 15.9 GB used', pct: 62, level: 'ok' });
+  assert.equal(diskUse({ diskFreeMB: 100, diskTotalMB: 1000 }).level, 'warn'); // 90 % used
+  assert.equal(diskUse({ diskFreeMB: 150, diskTotalMB: 1000 }).level, 'ok'); // exactly 85 %: not yet
+  assert.equal(diskUse({ diskFreeMB: 40, diskTotalMB: 1000 }).level, 'bad'); // 96 % used
+  assert.deepEqual(diskUse({ diskFreeMB: 0, diskTotalMB: 0 }), { text: 'unknown', pct: 0, level: 'ok' });
+  assert.deepEqual(diskUse({ diskFreeMB: 0, diskTotalMB: 0, diskErr: 'no such file' }), { text: 'error: no such file', pct: 0, level: 'bad' });
+  assert.equal(diskUse({ diskFreeMB: 2000, diskTotalMB: 1000 }).pct, 0); // free > total: never negative
+});
+
+test('camStatus gives a camera the same chip on every page', () => {
+  assert.deepEqual(camStatus({ available: true, recording: true, motion: false }), { text: '● REC', kind: 'rec' });
+  assert.deepEqual(camStatus({ available: true, recording: true, motion: true }), { text: '● Motion', kind: 'motion' });
+  assert.deepEqual(camStatus({ available: true, recording: false }), { text: 'Live', kind: 'ok' });
+  assert.deepEqual(camStatus({ available: false }), { text: 'Offline', kind: 'bad' });
+  assert.deepEqual(camStatus(undefined), { text: 'Offline', kind: 'bad' });
+  assert.deepEqual(camStatus({ available: true }, false), { text: 'Disabled', kind: 'muted' });
+  assert.deepEqual(camStatus({ enabled: false, available: false }), { text: 'Disabled', kind: 'muted' });
+});
+
+test('storageSplit divides the disk for the Storage page bar', () => {
+  assert.deepEqual(storageSplit({ usedMB: 8000, freeMB: 4000, totalMB: 16000 }), { recordings: 50, other: 25, free: 25 });
+  assert.deepEqual(storageSplit({ usedMB: 9000, freeMB: 8000, totalMB: 16000 }), { recordings: 56.25, other: 0, free: 50 }); // never negative
+  assert.deepEqual(storageSplit({ usedMB: 0, freeMB: 0, totalMB: 0 }), { recordings: 0, other: 0, free: 100 });
+});
+
+test('cameraSummary describes a camera in one line', () => {
+  const targets = [{ id: 'google-drive', name: 'Google Drive' }];
+  assert.equal(cameraSummary({ mode: 'continuous', schedule: [], localDays: 1, cloud: { targetId: 'google-drive', days: 7 } }, targets),
+    'Continuous · all day · 1 day on the phone · Google Drive, 7 days');
+  assert.equal(cameraSummary({ mode: 'motion', schedule: [{ days: [1, 2, 3, 4, 5, 6, 7], start: '22:00', end: '06:00' }], localDays: 3 }),
+    'Motion only · Every day 22:00–06:00 · 3 days on the phone');
+  assert.equal(cameraSummary({ mode: 'continuous', schedule: null, localDays: 2, cloud: { targetId: 'gone', days: 1 } }, targets),
+    'Continuous · all day · 2 days on the phone · gone, 1 day');
+});
+
+test('installChoice says what Settings can offer for installing the app', () => {
+  assert.equal(installChoice({ standalone: true, offered: true, secure: true }), 'installed');
+  assert.equal(installChoice({ standalone: false, offered: true, secure: true }), 'ready');
+  assert.equal(installChoice({ standalone: false, offered: false, secure: false }), 'https');
+  assert.equal(installChoice({ standalone: false, offered: false, secure: true }), 'menu');
 });
