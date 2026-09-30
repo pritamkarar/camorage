@@ -209,7 +209,7 @@ Each milestone gets its own implementation plan.
 | **M1 Core** | portal skeleton, first-run, auth, cameras + ONVIF discovery, live (HLS + WebRTC), continuous + scheduled recording, local retention + floor, 24 h local timeline, Tailscale + Cloudflare, health page | "done means" minus motion and cloud |
 | **M2 Motion** — **done** (phone source; ONVIF source deferred) | phone + ONVIF detection, motion mode keep rule, timeline markers, ignore areas | motion-only retention verified on phone |
 | **M3 Cloud** — **done** (Google Drive verified on the phone; S3-compatible by form, B2 via its S3 endpoint) | Drive sign-in flow, S3/B2, upload queue + ledger, cloud retention, cloud playback; retire `camorage.sh` | full "done means" |
-| **M4 Portability** | installer, arm64 builds, newer Termux (version-aware adapters), docs | fresh install on a second phone |
+| **M4 Portability** — **done** (one-line install from public GitHub release v0.4.0; arm/arm64/amd64; current Termux verified in termux-docker; exit test = from-scratch reinstall on the owner's phone, no second phone) | installer, arm64 builds, newer Termux (version-aware adapters), docs | fresh install on a second phone |
 
 Until M3, `camorage.sh` keeps running for Drive backup (camera then serves 3 RTSP clients — checked in M0).
 
