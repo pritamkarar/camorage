@@ -283,14 +283,22 @@ func (s *server) logout(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, okBody)
 }
 
+// streamCodecs is each stream's codecs, as MediaMTX names its tracks ("H265", "H264", …); nil when
+// unknown. The UI picks the in-browser H.265 decoder from them.
+type streamCodecs struct {
+	Main []string `json:"main"`
+	Sub  []string `json:"sub"`
+}
+
 type camStatus struct {
-	ID             string `json:"id"`
-	Name           string `json:"name"`
-	Enabled        bool   `json:"enabled"`
-	Available      bool   `json:"available"`
-	Recording      bool   `json:"recording"`
-	Motion         bool   `json:"motion"`
-	ScheduleActive bool   `json:"scheduleActive"`
+	ID             string       `json:"id"`
+	Name           string       `json:"name"`
+	Enabled        bool         `json:"enabled"`
+	Available      bool         `json:"available"`
+	Recording      bool         `json:"recording"`
+	Motion         bool         `json:"motion"`
+	ScheduleActive bool         `json:"scheduleActive"`
+	Codecs         streamCodecs `json:"codecs"`
 }
 
 func (s *server) status(w http.ResponseWriter, r *http.Request) {
@@ -303,6 +311,10 @@ func (s *server) status(w http.ResponseWriter, r *http.Request) {
 		cs := camStatus{ID: c.ID, Name: c.Name, Enabled: c.Enabled, ScheduleActive: c.Enabled && schedule.Active(c.Schedule, now)}
 		if c.Enabled && pathsErr == nil {
 			cs.Available = paths[c.ID].Available
+			cs.Codecs.Main = paths[c.ID].Tracks
+			if c.SubURL != "" {
+				cs.Codecs.Sub = paths[mediamtx.SubPath(c.ID)].Tracks
+			}
 			cs.Recording, _ = s.d.MTX.Record(ctx, c.ID)
 			cs.Motion = s.d.Motion != nil && s.d.Motion.Active(c.ID)
 		}

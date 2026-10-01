@@ -355,3 +355,27 @@ func TestStatusReportsVersion(t *testing.T) {
 		t.Fatalf("version %v", st["version"])
 	}
 }
+
+// The UI decides per stream whether the browser can play it (H.265 needs the in-browser decoder
+// in browsers without one), from MediaMTX's tracks.
+func TestStatusReportsCodecs(t *testing.T) {
+	e := newEnv(t)
+	e.setUp()
+	e.do("POST", "/api/cameras", gate) // has a sub URL
+	e.waitChanged()
+	e.mtx.paths["front-gate"] = mediamtx.PathState{Name: "front-gate", Available: true, Tracks: []string{"H265"}}
+	e.mtx.paths["front-gate_sub"] = mediamtx.PathState{Name: "front-gate_sub", Available: true, Tracks: []string{"H265", "Opus"}}
+	var st struct {
+		Cameras []struct {
+			ID     string
+			Codecs struct{ Main, Sub []string }
+		}
+	}
+	if err := json.Unmarshal(e.do("GET", "/api/status", "").Body.Bytes(), &st); err != nil {
+		t.Fatal(err)
+	}
+	c := st.Cameras[0].Codecs
+	if len(st.Cameras) != 1 || len(c.Main) != 1 || c.Main[0] != "H265" || len(c.Sub) != 2 || c.Sub[1] != "Opus" {
+		t.Fatalf("status = %+v", st)
+	}
+}

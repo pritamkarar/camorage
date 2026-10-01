@@ -89,9 +89,10 @@ func NewClient() *Client {
 }
 
 type PathState struct {
-	Name         string `json:"name"`
-	Available    bool   `json:"available"` // a live stream; `online` is true even for dead sources (M0)
-	InboundBytes uint64 `json:"inboundBytes"`
+	Name         string   `json:"name"`
+	Available    bool     `json:"available"` // a live stream; `online` is true even for dead sources (M0)
+	InboundBytes uint64   `json:"inboundBytes"`
+	Tracks       []string `json:"tracks"` // codec names, e.g. "H265"; empty until the stream is ready
 }
 
 type Span struct {

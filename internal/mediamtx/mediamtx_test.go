@@ -234,3 +234,20 @@ func TestDownload(t *testing.T) {
 		t.Fatal("a 404 is not an error")
 	}
 }
+
+func TestPathsReportsTracks(t *testing.T) {
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /v3/paths/list", func(w http.ResponseWriter, r *http.Request) {
+		io.WriteString(w, `{"items":[{"name":"cam1","available":true,"tracks":["H265"]},{"name":"cam2","available":false}]}`)
+	})
+	paths, err := newTestClient(t, mux).Paths(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := paths["cam1"].Tracks; len(got) != 1 || got[0] != "H265" {
+		t.Fatalf("cam1 tracks = %v", got)
+	}
+	if paths["cam2"].Tracks != nil {
+		t.Fatalf("cam2 tracks = %v", paths["cam2"].Tracks)
+	}
+}
