@@ -49,3 +49,35 @@ test('complete never drops', () => {
   const r = next(queue, anchor(0, 1000), 60000, 'complete', 1);
   assert.equal(r.do, 'decode');
 });
+
+// A machine too slow for the stream (80 ms per 15 fps frame) with 2.7 s HLS segments (one GOP
+// each): Live skips ahead now and then and stays within a few seconds of real time. Key frames come
+// once a segment, so a skip lands on the newest segment's start: about two segments is the floor.
+test('live on a too-slow machine stays within about two segments of real time', () => {
+  const FPS = 15;
+  const SEG = 2.7;
+  const DECODE_MS = 80;
+  const N = Math.round(SEG * FPS);
+  let now = 0;
+  let clock = null;
+  let seg = 0;
+  let behind = 0;
+  const queue = [];
+  const arrive = () => {
+    for (let i = 0; i < N; i++) queue.push({ t: seg * SEG + i / FPS, key: i === 0 });
+    seg++;
+  };
+  arrive();
+  while (now < 120000) {
+    while (now >= seg * SEG * 1000) arrive();
+    const r = next(queue, clock, now, 'live', 2 * 3);
+    if (r.do === 'idle') { now += 5; continue; }
+    if (r.do === 'wait') { now += r.ms; continue; }
+    if (r.do === 'drop') { queue.splice(0, r.keep); clock = null; continue; }
+    clock = r.clock;
+    const f = queue.shift();
+    now += DECODE_MS;
+    behind = Math.max(behind, now / 1000 - f.t); // frame t is captured at wall time t here
+  }
+  assert.ok(behind < 2 * SEG, `fell ${behind.toFixed(1)} s behind real time`);
+});
