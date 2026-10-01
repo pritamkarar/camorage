@@ -4,6 +4,7 @@ import {
   DAY_MS, offsetOf, dayStart, todayIn, isoAt, clock, toSpans, blocks, playFrom,
   scheduleSummary, cleanWindows, streamPaths, nextChunk, tailscaleSummary, cloudflareSummary, expandMask, compactMask, cellAt, eventSpans, cloudSpans, spanAt,
   plural, diskUse, camStatus, storageSplit, cameraSummary, tunnelChip, installChoice, unplayableNote, addDays, autoStart,
+  isH265Reason, usesH265, firstVariant, mediaPlaylist,
 } from './lib.js';
 
 const IST = '+05:30';
@@ -231,4 +232,38 @@ test('autoStart plays just before the last motion event, else the last minute re
   assert.equal(autoStart(day, [], 5 * S), 3540 * S, 'no motion: last minute');
   assert.equal(autoStart([{ from: 0, to: 1000 * S }, { from: 2000 * S, to: 2030 * S }], []), 2000 * S, 'newest recording shorter than a minute: its start');
   assert.equal(autoStart([], evs, 5 * S), null, 'nothing recorded');
+});
+
+test('isH265Reason recognises hls.js codec errors and the fallback’s own reasons', () => {
+  assert.equal(isH265Reason('one or more CODECS in variant not supported: ["hvc1.1.6.L93.90"]'), true);
+  assert.equal(isH265Reason('one or more CODECS in variant not supported: ["hev1.1.6.L93.90"]'), true);
+  assert.equal(isH265Reason('H.265 decoder: no-webgl'), true);
+  assert.equal(isH265Reason('one or more CODECS in variant not supported: ["avc1.4d0028"]'), false);
+  assert.equal(isH265Reason(undefined), false);
+  assert.equal(unplayableNote('H.265 decoder: no-webgl'), "This browser can't play H.265 video. Recording still works.");
+});
+
+test('usesH265 reads the codec lists of /api/status', () => {
+  assert.equal(usesH265(['H265']), true);
+  assert.equal(usesH265(['H265', 'Opus']), true);
+  assert.equal(usesH265(['H264']), false);
+  assert.equal(usesH265(null), false);
+  assert.equal(usesH265(undefined), false);
+});
+
+test('firstVariant and mediaPlaylist read MediaMTX playlists', () => {
+  const master = '#EXTM3U\n#EXT-X-VERSION:10\n#EXT-X-INDEPENDENT-SEGMENTS\n\n#EXT-X-STREAM-INF:BANDWIDTH=141541,CODECS="hvc1.1.6.L93.90",RESOLUTION=640x720\nvideo1_stream.m3u8?session=abc\n';
+  const base = 'http://phone:8080/live/hls/cam_sub/index.m3u8';
+  const variant = firstVariant(master, base);
+  assert.equal(variant, 'http://phone:8080/live/hls/cam_sub/video1_stream.m3u8?session=abc');
+  assert.equal(firstVariant('#EXTM3U\n', base), null);
+  const media = '#EXTM3U\n#EXT-X-VERSION:10\n#EXT-X-TARGETDURATION:3\n#EXT-X-MEDIA-SEQUENCE:8\n#EXT-X-MAP:URI="9d32_video1_init.mp4?session=abc"\n#EXTINF:2.66500,\n9d32_video1_seg8.mp4?session=abc\n#EXTINF:2.67500,\n9d32_video1_seg9.mp4?session=abc\n';
+  assert.deepEqual(mediaPlaylist(media, variant), {
+    init: 'http://phone:8080/live/hls/cam_sub/9d32_video1_init.mp4?session=abc',
+    target: 3,
+    segments: [
+      { seq: 8, url: 'http://phone:8080/live/hls/cam_sub/9d32_video1_seg8.mp4?session=abc' },
+      { seq: 9, url: 'http://phone:8080/live/hls/cam_sub/9d32_video1_seg9.mp4?session=abc' },
+    ],
+  });
 });

@@ -226,11 +226,49 @@ export function addDays(date, n) {
   return d.toISOString().slice(0, 10);
 }
 
+// isH265Reason tells whether a player's failure reason is about H.265: hls.js's codec error names
+// the stream's codecs (hvc1 or hev1), and the in-browser decoder's reasons say H.265.
+export function isH265Reason(reason = '') {
+  return /\b(hvc1|hev1)\.|H\.265/.test(reason);
+}
+
 // unplayableNote explains a stream this browser cannot decode. reason is hls.js's error reason,
-// which lists the stream's codecs (H.265 shows as hvc1 or hev1).
+// which lists the stream's codecs (H.265 shows as hvc1 or hev1), or the H.265 decoder's.
 export function unplayableNote(reason = '') {
-  const what = /\b(hvc1|hev1)\./.test(reason) ? 'H.265 video' : "this camera's video";
+  const what = isH265Reason(reason) ? 'H.265 video' : "this camera's video";
   return `This browser can't play ${what}. Recording still works.`;
+}
+
+// usesH265 tells whether a stream's codec list (/api/status codecs.main or codecs.sub: MediaMTX's
+// track names) includes H.265.
+export const usesH265 = (tracks) => Array.isArray(tracks) && tracks.includes('H265');
+
+// firstVariant is the absolute URL of the first variant in an HLS master playlist, or null.
+export function firstVariant(text, base) {
+  for (const line of text.split('\n')) {
+    const l = line.trim();
+    if (l && !l.startsWith('#')) return new URL(l, base).href;
+  }
+  return null;
+}
+
+// mediaPlaylist reads an HLS media playlist: { init (#EXT-X-MAP), target (#EXT-X-TARGETDURATION,
+// seconds), segments: [{ seq, url }] }, URLs absolute (MediaMTX's carry its ?session=).
+export function mediaPlaylist(text, base) {
+  let seq = 0;
+  let init = null;
+  let target = 0;
+  const segments = [];
+  for (const line of text.split('\n')) {
+    const l = line.trim();
+    if (l.startsWith('#EXT-X-MEDIA-SEQUENCE:')) seq = parseInt(l.slice(22), 10);
+    else if (l.startsWith('#EXT-X-TARGETDURATION:')) target = parseFloat(l.slice(22));
+    else if (l.startsWith('#EXT-X-MAP:')) {
+      const m = /URI="([^"]*)"/.exec(l);
+      if (m) init = new URL(m[1], base).href;
+    } else if (l && !l.startsWith('#')) segments.push({ seq: seq++, url: new URL(l, base).href });
+  }
+  return { init, target, segments };
 }
 
 // storageSplit gives the Storage page's bar: the percentage of the disk used by recordings, by
