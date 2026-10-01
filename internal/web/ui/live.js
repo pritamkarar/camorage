@@ -1,5 +1,5 @@
-import { h, api, playHLS, icon, chip, setChip, pageHead, emptyState } from './dom.js';
-import { camStatus, plural, streamPaths } from './lib.js';
+import { h, api, playHLS, icon, chip, setChip, pageHead, emptyState, skel } from './dom.js';
+import { camStatus, plural, streamPaths, unplayableNote } from './lib.js';
 import { playWHEP } from './whep.js';
 
 // webrtcUnreachable remembers, for this page load, that WebRTC could not reach the phone (usually
@@ -10,7 +10,9 @@ let webrtcUnreachable = false;
 // Clicking a tile opens the main stream full screen: WebRTC when the phone is directly reachable
 // (home Wi-Fi, Tailscale), otherwise HLS.
 export async function renderLive(root) {
-  const all = await api('/api/cameras');
+  const wait = h('div', {}, pageHead('Live', ''), h('div', { class: 'grid' }, skel('video'), skel('video')));
+  root.append(wait);
+  const all = await api('/api/cameras').finally(() => wait.remove());
   const cams = all.filter((c) => c.enabled);
   const head = pageHead('Live', plural(cams.length, 'camera'));
   root.append(head);
@@ -29,15 +31,17 @@ export async function renderLive(root) {
     video.muted = true; // the attribute alone does not satisfy autoplay policies
     const badge = chip('…');
     badges.set(cam.id, badge);
-    grid.append(h('figure', {
-      class: 'tile',
+    const tile = h('figure', {
+      class: 'tile loading',
       tabindex: 0,
       role: 'button',
       'aria-label': `${cam.name}: open full screen`,
       onclick: () => openFull(cam),
       onkeydown: (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); openFull(cam); } },
-    }, video, h('figcaption', {}, h('span', {}, cam.name), badge)));
-    players.push(playHLS(video, `/live/hls/${streamPaths(cam).tile}/index.m3u8`));
+    }, video, h('figcaption', {}, h('span', {}, cam.name), badge));
+    grid.append(tile);
+    loadingUntilPlaying(tile, video);
+    players.push(playHLS(video, `/live/hls/${streamPaths(cam).tile}/index.m3u8`, (why) => unplayable(tile, video, why)));
   }
   root.append(grid);
 
@@ -66,10 +70,12 @@ export async function renderLive(root) {
     video.muted = true;
     const mode = chip('connecting…');
     const closeBtn = h('button', { class: 'icon-btn', 'aria-label': 'Close', onclick: () => closeFull() }, icon('i-close'));
+    const box = h('div', { class: 'video-box loading' }, video);
+    loadingUntilPlaying(box, video);
     const overlay = h('div', { class: 'overlay', role: 'dialog', 'aria-label': cam.name, onclick: (e) => { if (e.target === overlay) closeFull(); } },
       h('div', { class: 'full' },
         h('div', { class: 'full-bar' }, h('strong', {}, cam.name), mode, closeBtn),
-        video));
+        box));
     document.body.append(overlay);
     closeBtn.focus();
     const me = { overlay, player: null, opener };
@@ -85,12 +91,14 @@ export async function renderLive(root) {
           if (full === me) openFull(cam); // the WebRTC connection died: reconnect (WebRTC, else HLS)
         });
         mode.textContent = 'WebRTC';
-      } catch {
-        webrtcUnreachable = true; // e.g. through Cloudflare from outside: don't wait for it again
+      } catch (err) {
+        // e.g. through Cloudflare from outside: don't wait for it again. A codec this browser
+        // cannot decode is this camera's problem, not WebRTC's; HLS may still decode it.
+        if (!err.codec) webrtcUnreachable = true;
       }
     }
     if (!player) {
-      player = playHLS(video, hlsURL);
+      player = playHLS(video, hlsURL, (why) => unplayable(box, video, why));
       mode.textContent = 'HLS';
     }
     if (full !== me) {
@@ -107,6 +115,19 @@ export async function renderLive(root) {
     full.overlay.remove();
     if (refocus && full.opener && full.opener.isConnected) full.opener.focus();
     full = null;
+  }
+
+  // unplayable puts a note in place of a video this browser cannot decode.
+  function unplayable(box, video, why) {
+    box.classList.remove('loading');
+    video.replaceWith(h('p', { class: 'unplayable', role: 'status' }, icon('i-live'), unplayableNote(why)));
+  }
+
+  // loadingUntilPlaying shimmers box until video shows frames, and again whenever it starts
+  // over (a retry after the camera or MediaMTX went away).
+  function loadingUntilPlaying(box, video) {
+    video.addEventListener('playing', () => box.classList.remove('loading'));
+    video.addEventListener('emptied', () => { if (video.isConnected) box.classList.add('loading'); }); // not once replaced by a note
   }
 
   const onKey = (e) => { if (e.key === 'Escape') closeFull(); };

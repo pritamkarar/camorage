@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import {
   DAY_MS, offsetOf, dayStart, todayIn, isoAt, clock, toSpans, blocks, playFrom,
   scheduleSummary, cleanWindows, streamPaths, nextChunk, tailscaleSummary, cloudflareSummary, expandMask, compactMask, cellAt, eventSpans, cloudSpans, spanAt,
-  plural, diskUse, camStatus, storageSplit, cameraSummary, tunnelChip, installChoice,
+  plural, diskUse, camStatus, storageSplit, cameraSummary, tunnelChip, installChoice, unplayableNote, addDays, autoStart,
 } from './lib.js';
 
 const IST = '+05:30';
@@ -205,4 +205,30 @@ test('installChoice says what Settings can offer for installing the app', () => 
   assert.equal(installChoice({ standalone: false, offered: true, secure: true }), 'ready');
   assert.equal(installChoice({ standalone: false, offered: false, secure: false }), 'https');
   assert.equal(installChoice({ standalone: false, offered: false, secure: true }), 'menu');
+});
+
+test('unplayableNote names H.265 from hls.js\'s codec error, else stays general', () => {
+  assert.equal(unplayableNote('one or more CODECS in variant not supported: ["hvc1.1.6.L93.90"]'), "This browser can't play H.265 video. Recording still works.");
+  assert.equal(unplayableNote('one or more CODECS in variant not supported: ["hev1.1.6.L93.90"]'), "This browser can't play H.265 video. Recording still works.");
+  assert.equal(unplayableNote(undefined), "This browser can't play this camera's video. Recording still works.");
+});
+
+test('addDays steps a calendar date across months, years and leap days', () => {
+  assert.equal(addDays('2026-10-01', -1), '2026-09-30');
+  assert.equal(addDays('2026-12-31', 1), '2027-01-01');
+  assert.equal(addDays('2028-02-28', 1), '2028-02-29');
+  assert.equal(addDays('2028-03-01', -1), '2028-02-29');
+});
+
+test('autoStart plays just before the last motion event, else the last minute recorded', () => {
+  const S = 1000;
+  const day = [{ from: 0, to: 3600 * S }];
+  const evs = [{ from: 600 * S, to: 660 * S }, { from: 1800 * S, to: 1850 * S }];
+  assert.equal(autoStart(day, evs, 5 * S), 1795 * S, 'last event, pre-roll earlier');
+  const gappy = [{ from: 0, to: 1000 * S }, { from: 2000 * S, to: 3000 * S }];
+  assert.equal(autoStart(gappy, [{ from: 2002 * S, to: 2010 * S }], 5 * S), 2000 * S, 'pre-roll in a gap: first recorded moment after it');
+  assert.equal(autoStart(gappy, [{ from: 3500 * S, to: 3510 * S }], 5 * S), 2940 * S, 'event after the recordings: last minute');
+  assert.equal(autoStart(day, [], 5 * S), 3540 * S, 'no motion: last minute');
+  assert.equal(autoStart([{ from: 0, to: 1000 * S }, { from: 2000 * S, to: 2030 * S }], []), 2000 * S, 'newest recording shorter than a minute: its start');
+  assert.equal(autoStart([], evs, 5 * S), null, 'nothing recorded');
 });

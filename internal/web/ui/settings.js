@@ -1,4 +1,4 @@
-import { h, api, icon, chip, setChip, stat, field, pageHead, sectionHead, drawer, showError } from './dom.js';
+import { h, api, icon, chip, setChip, stat, field, pageHead, sectionHead, drawer, showError, skel } from './dom.js';
 import { cloudflareSummary, tailscaleSummary, tunnelChip } from './lib.js';
 import { install, installState } from './pwa.js';
 
@@ -17,11 +17,12 @@ export async function renderSettings(root) {
     },
   }, 'Sign out');
   const head = pageHead('Settings', '', signOut);
-  const tiles = h('div', { class: 'stats' });
+  // skeletons until the first refresh
+  const tiles = h('div', { class: 'stats' }, skel('stat'), skel('stat'), skel('stat'), skel('stat'));
 
   // Tailscale: a switch; the status line says what to do next.
   const tsChip = chip('…');
-  const tsLine = h('p', { class: 'muted small' });
+  const tsLine = h('p', { class: 'muted small' }, skel('line'));
   const tsSwitch = h('input', { type: 'checkbox', class: 'switch', role: 'switch', 'aria-label': 'Tailscale' });
   tsSwitch.addEventListener('change', async () => {
     const want = tsSwitch.checked;
@@ -49,7 +50,7 @@ export async function renderSettings(root) {
   // Cloudflare Tunnel: the token is write-only; the hostname comes back only as a link.
   let cf = { tokenSet: false, hostname: '' };
   const cfChip = chip('…');
-  const cfLine = h('p', { class: 'muted small' });
+  const cfLine = h('p', { class: 'muted small' }, skel('line'));
   const cfBtn = h('button', { onclick: () => editCloudflare() }, 'Set up');
   const cfBox = h('div', { class: 'panel row' },
     h('div', { class: 'grow' }, h('div', { class: 'row wrap tight' }, h('h3', {}, 'Cloudflare Tunnel'), cfChip), cfLine),
@@ -91,7 +92,7 @@ export async function renderSettings(root) {
     host.focus();
   }
 
-  const procBox = h('div');
+  const procBox = h('div', {}, skel('table'));
 
   const cur = h('input', { type: 'password', autocomplete: 'current-password', required: true });
   const next = h('input', { type: 'password', autocomplete: 'new-password', minlength: 8, required: true });

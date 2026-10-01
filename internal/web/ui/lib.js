@@ -157,6 +157,19 @@ export function cellAt(x, y, w, h) {
 
 // eventSpans turns API events [{start, end, open}] into [{from, to}] epoch ms, sorted; an event
 // still in progress runs until now.
+// autoStart is where the Playback page starts playing by itself: preRollMs before the day's last
+// motion event (moved forward into recorded footage), else the last minute recorded; null when
+// nothing was recorded. spans and events are sorted (toSpans, eventSpans).
+export function autoStart(spans, events, preRollMs = 0) {
+  if (!spans.length) return null;
+  if (events.length) {
+    const t = playFrom(spans, events[events.length - 1].from - preRollMs);
+    if (t != null) return t;
+  }
+  const last = spans[spans.length - 1];
+  return Math.max(last.from, last.to - 60000);
+}
+
 export function eventSpans(events, now = Date.now()) {
   return events
     .map((e) => ({ from: Date.parse(e.start), to: e.open ? Math.max(now, Date.parse(e.end)) : Date.parse(e.end) }))
@@ -204,6 +217,20 @@ export function camStatus(st, enabled = true) {
   if (st.motion) return { text: '● Motion', kind: 'motion' };
   if (st.recording) return { text: '● REC', kind: 'rec' };
   return { text: 'Live', kind: 'ok' };
+}
+
+// addDays moves a YYYY-MM-DD date by n calendar days (no timezone involved).
+export function addDays(date, n) {
+  const d = new Date(`${date}T00:00:00Z`);
+  d.setUTCDate(d.getUTCDate() + n);
+  return d.toISOString().slice(0, 10);
+}
+
+// unplayableNote explains a stream this browser cannot decode. reason is hls.js's error reason,
+// which lists the stream's codecs (H.265 shows as hvc1 or hev1).
+export function unplayableNote(reason = '') {
+  const what = /\b(hvc1|hev1)\./.test(reason) ? 'H.265 video' : "this camera's video";
+  return `This browser can't play ${what}. Recording still works.`;
 }
 
 // storageSplit gives the Storage page's bar: the percentage of the disk used by recordings, by

@@ -11,6 +11,7 @@ MEDIAMTX=v1.21.1
 CLOUDFLARED=2026.9.3
 TAILSCALE=1.102.4
 DIR=$HOME/camorage
+STORAGE=${CAMORAGE_STORAGE:-/storage}
 
 say() { printf '\033[1m%s\033[0m\n' "$*"; }
 die() {
@@ -54,6 +55,17 @@ stop_running() {
 }
 
 # healthy waits up to 20 s for the portal to answer.
+# sd_missing names the SD cards Termux has no folder on yet. That folder is the only place on an
+# SD card Termux can write; Android creates it once Termux is allowed storage access.
+sd_missing() {
+	local d
+	for d in "$STORAGE"/*; do
+		case ${d##*/} in emulated | self) continue ;; esac
+		[ -d "$d" ] && [ ! -d "$d/Android/data/com.termux/files" ] && echo "${d##*/}"
+	done
+	return 0
+}
+
 healthy() {
 	for _ in $(seq 1 40); do
 		curl -fsS -m 2 http://127.0.0.1:8080/api/health >/dev/null 2>&1 && return 0
@@ -80,6 +92,17 @@ main() {
 		say "Installing Termux packages: ${need[*]}"
 		# stdin is this script under curl | bash: a package prompt must not read it; keep existing configs
 		pkg install -y -o Dpkg::Options::=--force-confdef -o Dpkg::Options::=--force-confold "${need[@]}" </dev/null
+	fi
+
+	# a first install with an SD card Termux cannot use yet: ask Android now (the Allow prompt shows
+	# while the downloads run), so setup can offer the SD card for recordings
+	sd=
+	if ! grep -qs '"recDir": *"[^"]' "$HOME/.camorage/config.json"; then
+		sd=$(sd_missing | tr '\n' ' ')
+		if [ -n "$sd" ]; then
+			say "SD card found (${sd% }): tap Allow in the storage prompt on the phone"
+			termux-setup-storage </dev/null >/dev/null 2>&1 || true
+		fi
 	fi
 
 	tmp=$(mktemp -d "$PREFIX/tmp/camorage-install.XXXXXX")
@@ -139,6 +162,17 @@ main() {
 		die "camorage $VERSION did not start (its log: $DIR/camorage.log.1); the previous version is running again"
 	fi
 	rm -rf "${DIR:?}/bin.old"
+	if [ -n "$sd" ]; then
+		for _ in $(seq 1 "${CAMORAGE_SD_WAIT:-60}"); do
+			[ -z "$(sd_missing)" ] && break
+			sleep 1
+		done
+		if [ -z "$(sd_missing)" ]; then
+			echo "SD card ready for recordings."
+		else
+			echo "Termux cannot use the SD card yet: run termux-setup-storage and tap Allow; setup offers it then."
+		fi
+	fi
 	ip=$(ip -4 -o addr show wlan0 2>/dev/null | awk '{ split($4, a, "/"); print a[1]; exit }') || ip=
 	[ -n "$ip" ] || ip="<this phone's Wi-Fi address>"
 	say "camorage $VERSION is running."

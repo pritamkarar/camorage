@@ -1,4 +1,4 @@
-import { h, api, playHLS, icon, chip, field, segmented, pageHead, emptyState, drawer } from './dom.js';
+import { h, api, playHLS, icon, chip, field, segmented, pageHead, emptyState, drawer, skel } from './dom.js';
 import { DAY_NAMES, camStatus, cameraSummary, cellAt, cleanWindows, compactMask, expandMask, plural, streamPaths } from './lib.js';
 
 // renderCameras lists the cameras as cards. Adding, editing, deleting and the ONVIF scan happen
@@ -7,7 +7,7 @@ export async function renderCameras(root) {
   const head = pageHead('Cameras', '',
     h('button', { onclick: () => scan() }, icon('i-scan'), 'Scan network'),
     h('button', { class: 'primary', onclick: () => edit(null) }, icon('i-plus'), 'Add camera'));
-  const list = h('div');
+  const list = h('div', {}, skel('card'), skel('card')); // until the first refresh
   root.append(head, list);
   let targets = [];
 

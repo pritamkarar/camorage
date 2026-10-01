@@ -83,6 +83,11 @@ for a in "$@"; do
 done
 EOF
 printf '#!/bin/sh\n' >"$FP/bin/termux-wake-lock"
+# a phone with an SD card Termux has no folder on yet; the fake termux-setup-storage reads stdin
+# like a prompt, then "Android" creates the folder (as when the user taps Allow)
+mkdir -p "$F/storage/1234-ABCD" "$F/storage/emulated/0" "$F/storage/self"
+# shellcheck disable=SC2016 # $CAMORAGE_STORAGE belongs to the generated script
+printf '#!/bin/sh\ncat >/dev/null\nmkdir -p "$CAMORAGE_STORAGE/1234-ABCD/Android/data/com.termux/files"\n' >"$FP/bin/termux-setup-storage"
 printf '#!/bin/sh\nexit 159\n' >"$F/nopkill/pkill" # pkill killed by SIGSYS (Termux procps 4.0.7, Sep 2026)
 chmod 755 "$FP"/bin/* "$F/nopkill/pkill"
 ln -s "$(command -v bash)" "$FP/bin/bash"
@@ -105,11 +110,13 @@ fstop() {
 }
 STUB=
 trap 'fstop; [ -n "$STUB" ] && kill -9 "$STUB" 2>/dev/null; true' EXIT
-OUT=$(finstall "v$V" 2>&1) || fail "curl | bash install: $OUT"
+OUT=$(finstall "v$V" CAMORAGE_STORAGE="$F/storage" 2>&1) || fail "curl | bash install: $OUT"
 [[ $OUT == *"camorage $V is running"* ]] || fail "curl | bash stopped early (a package prompt ate the script?): $OUT"
 [ "$(portals | wc -l)" = 1 ] || fail "portals after install: $(portals | wc -l)"
 grep -q -- "--force-confold" "$FP/pkg.log" || fail "pkg install without dpkg's keep-my-config options: $(cat "$FP/pkg.log")"
-echo "ok: curl | bash survives a package prompt reading stdin"
+[[ $OUT == *"SD card found (1234-ABCD)"* && $OUT == *"SD card ready for recordings."* ]] && [ -d "$F/storage/1234-ABCD/Android/data/com.termux/files" ] ||
+	fail "a first install did not ready the SD card: $OUT"
+echo "ok: curl | bash survives a package prompt and termux-setup-storage reading stdin; the SD card is readied"
 fstop
 BOOT=$(ls "$F/home/.termux/boot")
 env HOME="$F/home" PREFIX="$FP" PATH="$FP/bin:/usr/bin:/bin" "$F/home/.termux/boot/$BOOT" >/dev/null 2>&1
@@ -148,6 +155,13 @@ OUT=$(finstall "v$V-broken" 2>&1) && fail "a camorage that does not start was re
 grep -q "broken build" "$F/home/camorage/camorage.log.1" || fail "the failed start's log was not kept"
 [ ! -e "$F/home/camorage/bin.old" ] || fail "bin.old left behind"
 echo "ok: a release whose camorage does not start rolls back to the previous version"
+rm -rf "$F/storage/1234-ABCD/Android" # an SD card Termux cannot use, on a phone that is set up already
+mkdir -p "$F/rec"
+sed -i "s|\"recDir\": *\"\"|\"recDir\": \"$F/rec\"|" "$F/home/.camorage/config.json"
+grep -q "\"recDir\": \"$F/rec\"" "$F/home/.camorage/config.json" || fail "could not set recDir in $(cat "$F/home/.camorage/config.json")"
+OUT=$(finstall "v$V" CAMORAGE_STORAGE="$F/storage" 2>&1) || fail "upgrade of a set-up portal: $OUT"
+[[ $OUT != *"SD card"* ]] && [ ! -d "$F/storage/1234-ABCD/Android" ] || fail "an upgrade asked for SD card access: $OUT"
+echo "ok: an upgrade of a set-up portal does not ask for SD card access"
 fstop
 trap - EXIT
 rm -rf "$F" ".cache/release/v$V-broken"

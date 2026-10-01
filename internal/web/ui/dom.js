@@ -37,8 +37,10 @@ export async function api(path, { method = 'GET', body } = {}) {
 }
 
 // playHLS plays an HLS URL with hls.js (or natively on Safari). After a fatal error it retries
-// every 5 s, so a tile recovers by itself when its camera or MediaMTX comes back.
-export function playHLS(video, url) {
+// every 5 s, so a tile recovers by itself when its camera or MediaMTX comes back. A codec this
+// browser cannot decode (e.g. H.265 in most Linux browsers) never recovers: it calls
+// onUnplayable(reason) once instead.
+export function playHLS(video, url, onUnplayable = () => {}) {
   let hls = null;
   let timer = null;
   let closed = false;
@@ -51,7 +53,9 @@ export function playHLS(video, url) {
         if (!data.fatal) return;
         hls.destroy();
         hls = null;
-        retry();
+        const d = window.Hls.ErrorDetails;
+        if ([d.MANIFEST_INCOMPATIBLE_CODECS_ERROR, d.BUFFER_INCOMPATIBLE_CODECS_ERROR, d.BUFFER_ADD_CODEC_ERROR].includes(data.details)) onUnplayable(data.reason);
+        else retry();
       });
       hls.loadSource(url);
       hls.attachMedia(video);
@@ -139,6 +143,12 @@ export function segmented(label, options, value, onchange) {
     return h('label', {}, radio, h('span', {}, text));
   }));
   return { el, read: () => el.querySelector('input:checked').value };
+}
+
+// skel is a shimmering placeholder for content that is still loading; kind sets its shape:
+// stat, card, table, line, video or timeline.
+export function skel(kind) {
+  return h('div', { class: `skel ${kind}`, 'aria-hidden': 'true' });
 }
 
 // emptyState is what a page shows when it has nothing to list.

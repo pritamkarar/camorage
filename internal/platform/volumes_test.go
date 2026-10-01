@@ -17,14 +17,19 @@ func TestVolumesUnder(t *testing.T) {
 	os.MkdirAll(home, 0o755)
 
 	got := VolumesUnder(storage, home)
-	if len(got) != 2 {
+	if len(got) != 3 {
 		t.Fatalf("got %+v", got)
 	}
-	if got[0].Path != filepath.Join(sd, "camorage-rec") || got[0].Label != "SD card 1234-ABCD" || got[0].TotalMB == 0 {
+	if got[0].Path != filepath.Join(sd, "camorage-rec") || got[0].Label != "SD card 1234-ABCD" || got[0].TotalMB == 0 || !got[0].Ready {
 		t.Fatalf("SD volume = %+v", got[0])
 	}
-	if got[1].Path != filepath.Join(home, "camorage-rec") || got[1].Label != "Phone storage" {
-		t.Fatalf("home volume = %+v", got[1])
+	// offered so setup can say how to make it usable (termux-setup-storage creates the folder)
+	notYet := filepath.Join(storage, "ABCD-0000", "Android", "data", "com.termux", "files", "camorage-rec")
+	if got[1].Path != notYet || got[1].Label != "SD card ABCD-0000" || got[1].TotalMB == 0 || got[1].Ready {
+		t.Fatalf("SD card without a Termux folder = %+v", got[1])
+	}
+	if got[2].Path != filepath.Join(home, "camorage-rec") || got[2].Label != "Phone storage" || !got[2].Ready {
+		t.Fatalf("home volume = %+v", got[2])
 	}
 }
 

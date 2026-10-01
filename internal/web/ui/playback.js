@@ -1,5 +1,5 @@
-import { h, api, icon, pageHead, emptyState, showError } from './dom.js';
-import { DAY_MS, blocks, clock, cloudSpans, dayStart, eventSpans, isoAt, nextChunk, offsetOf, playFrom, plural, spanAt, toSpans, todayIn } from './lib.js';
+import { h, api, icon, pageHead, emptyState, showError, skel } from './dom.js';
+import { DAY_MS, addDays, autoStart, blocks, clock, cloudSpans, dayStart, eventSpans, isoAt, nextChunk, offsetOf, playFrom, plural, spanAt, toSpans, todayIn } from './lib.js';
 
 const CHUNK_S = 600; // each <video> source is 10 minutes; the next one loads when it ends
 const HOUR_MS = 3600 * 1000;
@@ -10,52 +10,78 @@ const longDate = (date) => new Date(`${date}T12:00:00Z`).toLocaleDateString(unde
   { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric', timeZone: 'UTC' });
 
 // renderPlayback shows a 24 h timeline (zoomable to 1 h) of what a camera recorded on a day, in
-// the phone's local time. Clicking plays from that moment and continues chunk by chunk.
+// the phone's local time. Clicking plays from that moment and continues chunk by chunk. The
+// timeline is the only seekbar (a native one would only span the current chunk); the player has
+// its own play/pause and fullscreen. Opening the page plays by itself: the camera with today's
+// latest motion event from just before it, else the first camera's last minute recorded.
 export async function renderPlayback(root) {
-  const [cams, st] = await Promise.all([api('/api/cameras'), api('/api/status')]);
+  const wait = h('div', {}, pageHead('Playback', ''), skel('video'), skel('timeline'));
+  root.append(wait);
+  let cams;
+  let st;
+  let first;
+  try {
+    [cams, st] = await Promise.all([api('/api/cameras'), api('/api/status')]);
+    first = cams.length ? await latestMotionCam(cams, todayIn(offsetOf(st.time))) : null;
+  } finally {
+    wait.remove();
+  }
   if (cams.length === 0) {
     root.append(pageHead('Playback', ''), emptyState('i-playback', 'No cameras yet.',
       h('a', { class: 'button primary', href: '#/cameras' }, icon('i-plus'), 'Add camera')));
     return () => {};
   }
   const off = offsetOf(st.time);
-  const state = { cam: cams[0].id, date: todayIn(off), spans: [], events: [], cloud: [], winStart: 0, winLen: DAY_MS, playhead: null };
+  const state = { cam: first.id, date: todayIn(off), spans: [], events: [], cloud: [], winStart: 0, winLen: DAY_MS, playhead: null };
   let chunkStart = null;
+  let clipFrom = null; // ms where the playing recording begins: the player bar's clock
 
   const camSel = h('select', { 'aria-label': 'Camera', onchange: () => { state.cam = camSel.value; load(); } },
     cams.map((c) => h('option', { value: c.id }, c.name)));
+  camSel.value = state.cam;
   const dateIn = h('input', { type: 'date', 'aria-label': 'Day', value: state.date, onchange: () => { state.date = dateIn.value; load(); } });
-  const prevBtn = h('button', { class: 'icon-btn', onclick: () => shift(-1), hidden: true, 'aria-label': 'Previous hour' }, icon('i-chevron-left'));
+  const prevBtn = h('button', { class: 'icon-btn', onclick: () => step(-1) }, icon('i-chevron-left'));
   const zoomBtn = h('button', { onclick: () => zoom() }, 'Zoom to 1 h');
-  const nextBtn = h('button', { class: 'icon-btn', onclick: () => shift(1), hidden: true, 'aria-label': 'Next hour' }, icon('i-chevron-right'));
-  const head = pageHead('Playback', '', camSel, dateIn, prevBtn, zoomBtn, nextBtn);
+  const nextBtn = h('button', { class: 'icon-btn', onclick: () => step(1) }, icon('i-chevron-right'));
+  const head = pageHead('Playback', '', camSel, dateIn, zoomBtn);
   const sub = head.querySelector('.sub');
-  const video = h('video', { class: 'player', controls: true, playsinline: true });
+  const video = h('video', { class: 'player', playsinline: true, onclick: () => togglePlay() });
+  const playBtn = h('button', { class: 'icon-btn', 'aria-label': 'Play', disabled: true, onclick: () => togglePlay() }, icon('i-play'));
+  const timeEl = h('span', {});
+  const fullBtn = h('button', { class: 'icon-btn', 'aria-label': 'Full screen', onclick: () => toggleFull() }, icon('i-fullscreen'));
+  const box = h('div', { class: 'video-box player-box' }, video,
+    h('div', { class: 'player-bar' }, playBtn, timeEl, h('span', { class: 'spacer' }), fullBtn));
   const bar = h('div', { class: 'timeline', onclick: (e) => click(e) });
   const ticks = h('div', { class: 'ticks' });
   const cloudKey = h('span', { class: 'cloud', hidden: true }, 'In the cloud');
   const dlText = h('span', {}, 'Download these 10 minutes');
   const download = h('a', { class: 'button', hidden: true, download: '' }, icon('i-download'), dlText);
   const label = h('p', { class: 'muted' }, 'Click the timeline to play.');
-  root.append(head, video, bar, ticks,
+  root.append(head, box, h('div', { class: 'scrub' }, prevBtn, h('div', {}, bar, ticks), nextBtn),
     h('div', { class: 'play-foot' },
       h('div', { class: 'legend' }, h('span', {}, 'Recorded'), h('span', { class: 'motion' }, 'Motion'), cloudKey),
       download),
     label);
 
+  let loads = 0;
   async function load() {
+    const mine = ++loads;
     state.winStart = dayStart(state.date, off);
     state.winLen = DAY_MS;
+    bar.replaceChildren();
+    bar.classList.add('loading');
+    let spans = [];
+    let events = [];
     try {
       const q = `cam=${encodeURIComponent(state.cam)}&date=${state.date}`;
-      const [spans, events] = await Promise.all([api(`/api/playback/spans?${q}`), api(`/api/playback/events?${q}`)]);
-      state.spans = toSpans(spans);
-      state.events = eventSpans(events);
+      [spans, events] = await Promise.all([api(`/api/playback/spans?${q}`), api(`/api/playback/events?${q}`)]);
     } catch (err) {
-      state.spans = [];
-      state.events = [];
-      if (err.message !== 'signed out') showError(err);
+      if (err.message !== 'signed out' && mine === loads) showError(err);
     }
+    if (mine !== loads) return; // another camera or day was picked meanwhile
+    bar.classList.remove('loading');
+    state.spans = toSpans(spans);
+    state.events = eventSpans(events);
     state.cloud = [];
     shown();
     loadCloud(state.cam, state.date); // answers later, or not at all: the phone's own recordings are drawn first
@@ -100,9 +126,23 @@ export async function renderPlayback(root) {
     for (let t = state.winStart; t <= state.winStart + state.winLen; t += step) labels.push(h('span', {}, clock(t, off).slice(0, 5)));
     ticks.replaceChildren(...labels);
     const zoomed = state.winLen !== DAY_MS;
+    const day = dayStart(state.date, off);
     zoomBtn.textContent = zoomed ? 'Show 24 h' : 'Zoom to 1 h';
-    prevBtn.hidden = !zoomed;
-    nextBtn.hidden = !zoomed;
+    prevBtn.disabled = zoomed && state.winStart <= day;
+    nextBtn.disabled = zoomed ? state.winStart >= day + DAY_MS - HOUR_MS : state.date >= todayIn(off);
+    prevBtn.setAttribute('aria-label', zoomed ? 'Previous hour' : 'Previous day');
+    nextBtn.setAttribute('aria-label', zoomed ? 'Next hour' : 'Next day');
+  }
+
+  // step moves the timeline by a day in the 24 h view, by an hour when zoomed.
+  function step(dir) {
+    if (state.winLen !== DAY_MS) {
+      shift(dir);
+      return;
+    }
+    state.date = addDays(state.date, dir);
+    dateIn.value = state.date;
+    load();
   }
 
   function clampHour(start) {
@@ -144,11 +184,24 @@ export async function renderPlayback(root) {
     play(from);
   }
 
+  // start plays url, a recording that begins at from (ms), in the player.
+  function start(url, from) {
+    clipFrom = from;
+    video.src = url;
+    video.play().catch((err) => {
+      if (err.name !== 'NotAllowedError') return;
+      video.muted = true; // no click on the page yet: browsers allow only muted autoplay
+      video.play().catch(() => {});
+    });
+    box.classList.add('loading');
+    playBtn.disabled = false;
+    timeEl.textContent = clock(from, off);
+  }
+
   function play(from) {
     chunkStart = from;
     const q = `cam=${encodeURIComponent(state.cam)}&start=${encodeURIComponent(isoAt(from, off))}&duration=${CHUNK_S}`;
-    video.src = `/api/playback/video?${q}&format=fmp4`;
-    video.play().catch(() => {});
+    start(`/api/playback/video?${q}&format=fmp4`, from);
     download.href = `/api/playback/video?${q}&format=mp4`;
     download.hidden = false;
     dlText.textContent = 'Download these 10 minutes';
@@ -158,16 +211,44 @@ export async function renderPlayback(root) {
   function playCloud(c, t) {
     chunkStart = null; // a cloud clip does not chain into the next chunk
     const url = `/api/playback/cloud?cam=${encodeURIComponent(state.cam)}&date=${state.date}&file=${encodeURIComponent(c.file)}`;
-    video.src = url;
+    start(url, c.from);
     video.addEventListener('loadedmetadata', () => { video.currentTime = Math.max(0, (t - c.from) / 1000); }, { once: true });
-    video.play().catch(() => {});
     download.href = `${url}&download=1`;
     dlText.textContent = 'Download this cloud clip';
     download.hidden = false;
     label.textContent = `Playing the cloud copy from ${clock(t, off)}`;
   }
 
+  function togglePlay() {
+    if (!video.currentSrc) return;
+    if (video.paused) video.play().catch(() => {});
+    else video.pause();
+  }
+
+  // toggleFull puts the player (with its bar) full screen. An iPhone can only do that with the
+  // video itself, in its own player.
+  function toggleFull() {
+    if (document.fullscreenElement) document.exitFullscreen().catch(() => {});
+    else if (box.requestFullscreen) box.requestFullscreen().catch(() => {});
+    else if (video.webkitEnterFullscreen) video.webkitEnterFullscreen();
+  }
+  const onFullscreen = () => {
+    const on = document.fullscreenElement === box;
+    fullBtn.replaceChildren(icon(on ? 'i-fullscreen-exit' : 'i-fullscreen'));
+    fullBtn.setAttribute('aria-label', on ? 'Exit full screen' : 'Full screen');
+  };
+  document.addEventListener('fullscreenchange', onFullscreen);
+
+  const playing = (on) => {
+    playBtn.replaceChildren(icon(on ? 'i-pause' : 'i-play'));
+    playBtn.setAttribute('aria-label', on ? 'Pause' : 'Play');
+  };
+  video.addEventListener('play', () => playing(true));
+  video.addEventListener('pause', () => { playing(false); box.classList.remove('loading'); });
+  video.addEventListener('waiting', () => box.classList.add('loading'));
+  video.addEventListener('playing', () => box.classList.remove('loading'));
   video.addEventListener('timeupdate', () => {
+    if (clipFrom != null) timeEl.textContent = clock(clipFrom + video.currentTime * 1000, off);
     if (chunkStart == null) return;
     state.playhead = chunkStart + video.currentTime * 1000;
     label.textContent = `Playing ${clock(state.playhead, off)}`;
@@ -183,6 +264,7 @@ export async function renderPlayback(root) {
   // say so instead of showing "Playing" over a black player. The status probe turns an ended
   // session into the login screen.
   video.addEventListener('error', () => {
+    box.classList.remove('loading');
     if (chunkStart == null) return;
     chunkStart = null;
     label.textContent = 'This recording could not be played here. Try another moment, or use Download.';
@@ -190,9 +272,27 @@ export async function renderPlayback(root) {
   });
 
   await load();
+  if (loads === 1) { // still the opening camera and day: nobody picked another meanwhile
+    const preRoll = ((first.motion && first.motion.preRollSec) || 0) * 1000;
+    const t = autoStart(state.spans, state.events, preRoll);
+    if (t != null) play(t);
+  }
   return () => {
     chunkStart = null;
+    document.removeEventListener('fullscreenchange', onFullscreen);
+    if (document.fullscreenElement === box) document.exitFullscreen().catch(() => {});
     video.removeAttribute('src');
     video.load();
   };
+}
+
+// latestMotionCam is the camera with the latest motion event on date, else the first camera.
+// A camera whose events cannot be read counts as having none.
+async function latestMotionCam(cams, date) {
+  const latest = await Promise.all(cams.map((c) =>
+    api(`/api/playback/events?cam=${encodeURIComponent(c.id)}&date=${date}`)
+      .then((evs) => Math.max(...eventSpans(evs).map((e) => e.from)))
+      .catch(() => -Infinity)));
+  const i = latest.indexOf(Math.max(...latest));
+  return latest[i] > -Infinity ? cams[i] : cams[0];
 }

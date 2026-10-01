@@ -156,6 +156,38 @@ func TestSpansNoRecordingsIsEmpty(t *testing.T) {
 	}
 }
 
+// A camera that never recorded has no folder yet; MediaMTX answers 400, not 404.
+func TestSpansNoFolderYetIsEmpty(t *testing.T) {
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /list", func(w http.ResponseWriter, r *http.Request) {
+		http.Error(w, `{"status":"error","error":"lstat /rec/cam1: no such file or directory"}`, http.StatusBadRequest)
+	})
+	c := newTestClient(t, mux)
+	spans, err := c.Spans(context.Background(), "cam1", time.Now(), time.Now())
+	if err != nil || len(spans) != 0 {
+		t.Fatalf("got %v, %v", spans, err)
+	}
+}
+
+// The janitor deleting a segment while MediaMTX reads the folder fails that one listing; the next
+// one no longer sees the file.
+func TestSpansRetriesSegmentDeletedMeanwhile(t *testing.T) {
+	calls := 0
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /list", func(w http.ResponseWriter, r *http.Request) {
+		if calls++; calls == 1 {
+			http.Error(w, `{"status":"error","error":"open /rec/cam1/2026-10-01_11-29-17-292287.mp4: no such file or directory"}`, http.StatusInternalServerError)
+			return
+		}
+		io.WriteString(w, `[{"start":"2026-09-30T07:22:34Z","duration":60}]`)
+	})
+	c := newTestClient(t, mux)
+	spans, err := c.Spans(context.Background(), "cam1", time.Now(), time.Now())
+	if err != nil || len(spans) != 1 {
+		t.Fatalf("got %v, %v", spans, err)
+	}
+}
+
 func TestVideoURL(t *testing.T) {
 	c := &Client{Playback: "http://127.0.0.1:9996"}
 	ist := time.FixedZone("IST", 19800)

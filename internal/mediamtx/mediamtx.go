@@ -177,9 +177,21 @@ func (c *Client) Spans(ctx context.Context, path string, from, to time.Time) ([]
 		Start    time.Time `json:"start"`
 		Duration float64   `json:"duration"` // seconds
 	}
-	if err := c.getJSON(ctx, c.Playback+"/list?"+q.Encode(), &raw); err != nil {
+	// MediaMTX fails the whole listing when a segment it found is deleted (by the janitor) before
+	// it opens it; listing again no longer finds that file.
+	var err error
+	for range 3 {
 		var se *StatusError
-		if errors.As(err, &se) && se.Code == http.StatusNotFound {
+		err = c.getJSON(ctx, c.Playback+"/list?"+q.Encode(), &raw)
+		if !errors.As(err, &se) || se.Code != http.StatusInternalServerError || !strings.Contains(se.Body, "no such file or directory") {
+			break
+		}
+	}
+	if err != nil {
+		// 404: no segments; 400 "no such file": no folder yet, the camera never recorded
+		var se *StatusError
+		if errors.As(err, &se) && (se.Code == http.StatusNotFound ||
+			se.Code == http.StatusBadRequest && strings.Contains(se.Body, "no such file or directory")) {
 			return nil, nil
 		}
 		return nil, err

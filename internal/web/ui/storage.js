@@ -1,4 +1,4 @@
-import { h, api, icon, chip, stat, field, pageHead, sectionHead, drawer, showError } from './dom.js';
+import { h, api, icon, chip, stat, field, pageHead, sectionHead, drawer, showError, skel } from './dom.js';
 import { storageSplit } from './lib.js';
 
 const TYPES = { drive: 'Google Drive', s3: 'S3-compatible', local: 'Folder on the phone' };
@@ -8,12 +8,13 @@ const gb = (mb) => `${(mb / 1024).toFixed(1)} GB`;
 // and the cloud storage targets; Google Drive and S3-compatible targets are added in a drawer.
 export async function renderStorage(root) {
   const head = pageHead('Storage', '');
-  const stats = h('div', { class: 'stats' });
+  // skeletons until the first refresh, which can take a while: it measures the recordings
+  const stats = h('div', { class: 'stats' }, skel('stat'), skel('stat'), skel('stat'), skel('stat'));
   const recFill = h('i');
   const otherFill = h('i', { class: 'other' });
-  const meter = h('div', { class: 'meter big', role: 'img' }, recFill, otherFill);
-  const uploads = h('div');
-  const targets = h('div');
+  const meter = h('div', { class: 'meter big loading', role: 'img' }, recFill, otherFill);
+  const uploads = h('div', {}, skel('table'));
+  const targets = h('div', {}, skel('card'));
   root.append(head, stats, meter,
     h('div', { class: 'legend' }, h('span', {}, 'Recordings'), h('span', { class: 'other' }, 'Other files'), h('span', { class: 'free' }, 'Free')),
     sectionHead('Cloud copies'), uploads,
@@ -32,6 +33,7 @@ export async function renderStorage(root) {
       stat(gb(s.freeMB), `free of ${gb(s.totalMB)}`),
       s.daysFit ? stat(`${s.daysFit.toFixed(1)} days`, 'still fit') : stat('—', 'days that fit: not known yet'));
     const split = storageSplit(s);
+    meter.classList.remove('loading');
     recFill.style.width = `${split.recordings}%`;
     otherFill.style.width = `${split.other}%`;
     meter.setAttribute('aria-label', `${Math.round(split.recordings)}% recordings, ${Math.round(split.other)}% other files, ${Math.round(split.free)}% free`);

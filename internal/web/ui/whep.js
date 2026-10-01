@@ -41,7 +41,12 @@ export async function playWHEP(video, url, timeoutMs = 4000, onLost = () => {}) 
       headers: { 'Content-Type': 'application/sdp' },
       body: pc.localDescription.sdp,
     });
-    if (res.status !== 201) throw new Error(`WHEP HTTP ${res.status}`);
+    if (res.status !== 201) {
+      const err = new Error(`WHEP HTTP ${res.status}`);
+      // MediaMTX's 400 when this browser cannot decode the stream: WebRTC itself got through
+      err.codec = (await res.text()).includes('codecs not supported by client');
+      throw err;
+    }
     session = res.headers.get('Location');
     await pc.setRemoteDescription({ type: 'answer', sdp: await res.text() });
     await playing(video, timeoutMs);
