@@ -1,5 +1,5 @@
 import { h, api, playHLS, icon, chip, field, segmented, pageHead, emptyState, drawer, skel } from './dom.js';
-import { DAY_NAMES, camStatus, cameraSummary, cellAt, cleanWindows, compactMask, expandMask, plural, streamPaths } from './lib.js';
+import { DAY_NAMES, camStatus, cameraSummary, cellAt, cleanWindows, compactMask, expandMask, plural, streamPaths, unplayableNote } from './lib.js';
 
 // renderCameras lists the cameras as cards. Adding, editing, deleting and the ONVIF scan happen
 // in a drawer (the app closes it when the page goes away).
@@ -241,6 +241,8 @@ function maskEditor(cam, ignore) {
   const stop = () => { painting = null; };
   grid.addEventListener('pointerup', stop);
   grid.addEventListener('pointercancel', stop);
-  const player = playHLS(video, `/live/hls/${streamPaths(cam).tile}/index.m3u8`);
+  // the in-browser H.265 decoder does not cover this preview: say so instead of a black box
+  const player = playHLS(video, `/live/hls/${streamPaths(cam).tile}/index.m3u8`, (why) =>
+    video.replaceWith(h('p', { class: 'unplayable', role: 'status' }, icon('i-live'), unplayableNote(why))));
   return { el: h('div', { class: 'mask' }, video, grid), read: () => compactMask(cells), close: () => player.close() };
 }

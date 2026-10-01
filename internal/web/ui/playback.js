@@ -1,4 +1,5 @@
 import { h, api, icon, pageHead, emptyState, showError, skel } from './dom.js';
+import { CanvasMedia, needsFallback, fallbackAvailable, h265Supported } from './h265.js';
 import { DAY_MS, addDays, autoStart, blocks, clock, cloudSpans, dayStart, eventSpans, isoAt, nextChunk, offsetOf, playFrom, plural, spanAt, toSpans, todayIn } from './lib.js';
 
 const CHUNK_S = 600; // each <video> source is 10 minutes; the next one loads when it ends
@@ -32,8 +33,12 @@ export async function renderPlayback(root) {
     return () => {};
   }
   const off = offsetOf(st.time);
+  // Cameras whose recordings go through the in-browser H.265 decoder: those /api/status says are
+  // H.265 (in a browser that can't decode it), plus any learned from a failed chunk below.
+  const fallbackCams = new Set(st.cameras.filter((c) => needsFallback((c.codecs || {}).main)).map((c) => c.id));
   const state = { cam: first.id, date: todayIn(off), spans: [], events: [], cloud: [], winStart: 0, winLen: DAY_MS, playhead: null };
   let chunkStart = null;
+  let chunkCam = null; // the camera chunkStart belongs to
   let clipFrom = null; // ms where the playing recording begins: the player bar's clock
 
   const camSel = h('select', { 'aria-label': 'Camera', onchange: () => { state.cam = camSel.value; load(); } },
@@ -46,6 +51,8 @@ export async function renderPlayback(root) {
   const head = pageHead('Playback', '', camSel, dateIn, zoomBtn);
   const sub = head.querySelector('.sub');
   const video = h('video', { class: 'player', playsinline: true, onclick: () => togglePlay() });
+  let canvasMedia = null; // made the first time a camera needs the H.265 decoder
+  let media = video; // what is in the player box now: the <video>, or canvasMedia
   const playBtn = h('button', { class: 'icon-btn', 'aria-label': 'Play', disabled: true, onclick: () => togglePlay() }, icon('i-play'));
   const timeEl = h('span', {});
   const fullBtn = h('button', { class: 'icon-btn', 'aria-label': 'Full screen', onclick: () => toggleFull() }, icon('i-fullscreen'));
@@ -187,11 +194,11 @@ export async function renderPlayback(root) {
   // start plays url, a recording that begins at from (ms), in the player.
   function start(url, from) {
     clipFrom = from;
-    video.src = url;
-    video.play().catch((err) => {
+    media.src = url;
+    media.play().catch((err) => {
       if (err.name !== 'NotAllowedError') return;
-      video.muted = true; // no click on the page yet: browsers allow only muted autoplay
-      video.play().catch(() => {});
+      media.muted = true; // no click on the page yet: browsers allow only muted autoplay
+      media.play().catch(() => {});
     });
     box.classList.add('loading');
     playBtn.disabled = false;
@@ -200,6 +207,8 @@ export async function renderPlayback(root) {
 
   function play(from) {
     chunkStart = from;
+    chunkCam = state.cam;
+    use(fallbackCams.has(state.cam) ? decoderMedia() : video);
     const q = `cam=${encodeURIComponent(state.cam)}&start=${encodeURIComponent(isoAt(from, off))}&duration=${CHUNK_S}`;
     start(`/api/playback/video?${q}&format=fmp4`, from);
     download.href = `/api/playback/video?${q}&format=mp4`;
@@ -210,6 +219,7 @@ export async function renderPlayback(root) {
 
   function playCloud(c, t) {
     chunkStart = null; // a cloud clip does not chain into the next chunk
+    use(video); // cloud clips are plain MP4: always the <video>
     const url = `/api/playback/cloud?cam=${encodeURIComponent(state.cam)}&date=${state.date}&file=${encodeURIComponent(c.file)}`;
     start(url, c.from);
     video.addEventListener('loadedmetadata', () => { video.currentTime = Math.max(0, (t - c.from) / 1000); }, { once: true });
@@ -219,10 +229,30 @@ export async function renderPlayback(root) {
     label.textContent = `Playing the cloud copy from ${clock(t, off)}`;
   }
 
+  // use puts m (the <video> or the H.265 decoder's CanvasMedia) in the player box, stopping the
+  // other one.
+  function use(m) {
+    if (m === media) return;
+    media.pause();
+    media.removeAttribute('src');
+    media.load();
+    (media.el || media).replaceWith(m.el || m);
+    media = m;
+  }
+
+  function decoderMedia() {
+    if (!canvasMedia) {
+      canvasMedia = new CanvasMedia();
+      canvasMedia.el.addEventListener('click', () => togglePlay());
+      listen(canvasMedia);
+    }
+    return canvasMedia;
+  }
+
   function togglePlay() {
-    if (!video.currentSrc) return;
-    if (video.paused) video.play().catch(() => {});
-    else video.pause();
+    if (!media.currentSrc) return;
+    if (media.paused) media.play().catch(() => {});
+    else media.pause();
   }
 
   // toggleFull puts the player (with its bar) full screen. An iPhone can only do that with the
@@ -230,7 +260,7 @@ export async function renderPlayback(root) {
   function toggleFull() {
     if (document.fullscreenElement) document.exitFullscreen().catch(() => {});
     else if (box.requestFullscreen) box.requestFullscreen().catch(() => {});
-    else if (video.webkitEnterFullscreen) video.webkitEnterFullscreen();
+    else if (media === video && video.webkitEnterFullscreen) video.webkitEnterFullscreen();
   }
   const onFullscreen = () => {
     const on = document.fullscreenElement === box;
@@ -243,33 +273,47 @@ export async function renderPlayback(root) {
     playBtn.replaceChildren(icon(on ? 'i-pause' : 'i-play'));
     playBtn.setAttribute('aria-label', on ? 'Pause' : 'Play');
   };
-  video.addEventListener('play', () => playing(true));
-  video.addEventListener('pause', () => { playing(false); box.classList.remove('loading'); });
-  video.addEventListener('waiting', () => box.classList.add('loading'));
-  video.addEventListener('playing', () => box.classList.remove('loading'));
-  video.addEventListener('timeupdate', () => {
-    if (clipFrom != null) timeEl.textContent = clock(clipFrom + video.currentTime * 1000, off);
-    if (chunkStart == null) return;
-    state.playhead = chunkStart + video.currentTime * 1000;
-    label.textContent = `Playing ${clock(state.playhead, off)}`;
-    draw();
-  });
-  video.addEventListener('ended', () => {
-    if (chunkStart == null) return;
-    const next = nextChunk(state.spans, chunkStart, video.currentTime * 1000);
-    if (next != null && next < dayStart(state.date, off) + DAY_MS) play(next);
-    else label.textContent = 'End of the recordings for this day.';
-  });
-  // A chunk that fails (session ended, recording pruned, a browser that cannot stream it) must
-  // say so instead of showing "Playing" over a black player. The status probe turns an ended
-  // session into the login screen.
-  video.addEventListener('error', () => {
-    box.classList.remove('loading');
-    if (chunkStart == null) return;
-    chunkStart = null;
-    label.textContent = 'This recording could not be played here. Try another moment, or use Download.';
-    api('/api/status').catch(() => {});
-  });
+  // listen wires the player bar, timeline and chunk chaining to m's events. Only the one in the box
+  // counts: a stopped player may still fire a late event.
+  function listen(m) {
+    const on = (type, fn) => m.addEventListener(type, () => { if (m === media) fn(); });
+    on('play', () => playing(true));
+    on('pause', () => { playing(false); box.classList.remove('loading'); });
+    on('waiting', () => box.classList.add('loading'));
+    on('playing', () => box.classList.remove('loading'));
+    on('timeupdate', () => {
+      if (clipFrom != null) timeEl.textContent = clock(clipFrom + media.currentTime * 1000, off);
+      if (chunkStart == null) return;
+      state.playhead = chunkStart + media.currentTime * 1000;
+      label.textContent = `Playing ${clock(state.playhead, off)}`;
+      draw();
+    });
+    on('ended', () => {
+      if (chunkStart == null) return;
+      const next = nextChunk(state.spans, chunkStart, media.currentTime * 1000);
+      if (next != null && next < dayStart(state.date, off) + DAY_MS) play(next);
+      else label.textContent = 'End of the recordings for this day.';
+    });
+    // A chunk that fails (session ended, recording pruned, a browser that cannot stream it) must
+    // say so instead of showing "Playing" over a black player. The status probe turns an ended
+    // session into the login screen. A camera whose codec was unknown when the page opened may be
+    // H.265: its chunk is tried once more through the decoder (which says not-h265 otherwise).
+    // Both are about the chunk's own camera, which may no longer be the one picked.
+    on('error', () => {
+      box.classList.remove('loading');
+      if (chunkStart == null) return;
+      if (media === video && chunkCam === state.cam && !fallbackCams.has(chunkCam) && fallbackAvailable() && !h265Supported()) {
+        fallbackCams.add(chunkCam);
+        play(chunkStart);
+        return;
+      }
+      if (media !== video && media.error && media.error.message === 'not-h265') fallbackCams.delete(chunkCam);
+      chunkStart = null;
+      label.textContent = 'This recording could not be played here. Try another moment, or use Download.';
+      api('/api/status').catch(() => {});
+    });
+  }
+  listen(video);
 
   await load();
   if (loads === 1) { // still the opening camera and day: nobody picked another meanwhile
@@ -281,8 +325,9 @@ export async function renderPlayback(root) {
     chunkStart = null;
     document.removeEventListener('fullscreenchange', onFullscreen);
     if (document.fullscreenElement === box) document.exitFullscreen().catch(() => {});
-    video.removeAttribute('src');
-    video.load();
+    media.removeAttribute('src');
+    media.load();
+    if (canvasMedia) canvasMedia.destroy();
   };
 }
 
