@@ -132,3 +132,22 @@ func TestIndexLinksIconsAndSprite(t *testing.T) {
 		}
 	}
 }
+
+// The H.265 fallback compiles de265.wasm in the browser: the CSP must allow WebAssembly
+// compilation, and the file must be served as application/wasm (compileStreaming insists).
+func TestH265DecoderIsServed(t *testing.T) {
+	e := newEnv(t)
+	csp := e.do("GET", "/", "").Header().Get("Content-Security-Policy")
+	if !strings.Contains(csp, "script-src 'self' 'wasm-unsafe-eval';") {
+		t.Errorf("CSP does not allow compiling WebAssembly: %s", csp)
+	}
+	w := e.do("GET", "/vendor/hevc/de265.wasm", "")
+	if w.Code != http.StatusOK || w.Header().Get("Content-Type") != "application/wasm" || w.Body.Len() != 435976 {
+		t.Fatalf("de265.wasm: %d %q %d bytes", w.Code, w.Header().Get("Content-Type"), w.Body.Len())
+	}
+	for _, p := range []string{"/vendor/hevc/de265.js", "/vendor/hevc/paint.js", "/vendor/hevc/demux.js", "/vendor/hevc/COPYING.libde265", "/vendor/hevc/README.md"} {
+		if w := e.do("GET", p, ""); w.Code != http.StatusOK {
+			t.Errorf("%s: %d", p, w.Code)
+		}
+	}
+}

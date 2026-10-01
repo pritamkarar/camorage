@@ -87,5 +87,6 @@ camorage is MIT-licensed (see `LICENSE`). The third-party parts below keep their
 ## Third-party software
 
 - [hls.js](https://github.com/video-dev/hls.js) 1.7.3 (Apache-2.0) is included in the web UI (`internal/web/ui/vendor/hls.min.js`).
+- [hevc-wasm](https://github.com/OpenIPC/hevc-wasm) 0.2.0 is included in the web UI (`internal/web/ui/vendor/hevc/`) to play H.265 cameras in browsers that cannot decode H.265. Its decoder `de265.wasm` is [libde265](https://github.com/strukturag/libde265) (LGPL-3.0, see `COPYING.libde265`; that folder's README says how to rebuild it); the rest is MIT.
 - The installer downloads [MediaMTX](https://github.com/bluenviron/mediamtx) (MIT), [cloudflared](https://github.com/cloudflare/cloudflared) (Apache-2.0) and [Tailscale](https://github.com/tailscale/tailscale) (BSD-3-Clause) from their official releases.
 - camorage uses [golang.org/x/crypto](https://pkg.go.dev/golang.org/x/crypto) (BSD-3-Clause).
