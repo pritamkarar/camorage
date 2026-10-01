@@ -91,6 +91,8 @@ export function playH265Live(canvas, url, { onPlaying = () => {}, onWaiting = ()
   let closed = false;
   let ctl = null;
   let timer = null;
+  let gen = 0; // messages stamped with an older generation were meant for a stream since replaced
+  const reset = () => worker.postMessage({ type: 'reset', gen: ++gen });
 
   const stop = () => {
     if (ctl) ctl.abort();
@@ -101,7 +103,7 @@ export function playH265Live(canvas, url, { onPlaying = () => {}, onWaiting = ()
     if (closed) return;
     stop();
     onWaiting();
-    worker.postMessage({ type: 'reset' });
+    reset();
     timer = setTimeout(follow, RETRY_MS);
   };
   const giveUp = (reason) => {
@@ -124,7 +126,7 @@ export function playH265Live(canvas, url, { onPlaying = () => {}, onWaiting = ()
       while (!mine.signal.aborted) {
         const pl = mediaPlaylist(await fetchOK(variant, mine.signal, 'text'), variant);
         if (pl.init && pl.init !== initURL) {
-          if (initURL) worker.postMessage({ type: 'reset' });
+          if (initURL) reset();
           initURL = pl.init;
           const data = await fetchOK(initURL, mine.signal);
           // more than two segments queued means a whole segment behind (one would trip on jitter)
@@ -147,10 +149,11 @@ export function playH265Live(canvas, url, { onPlaying = () => {}, onWaiting = ()
     if (closed) return;
     closed = true;
     stop();
-    if (worker) worker.postMessage({ type: 'destroy' });
+    if (worker) worker.terminate();
   }
 
   startWorker(canvas, 'live', (m) => {
+    if (m.gen !== undefined && m.gen !== gen) return;
     if (m.type === 'playing') onPlaying();
     else if (m.type === 'waiting') onWaiting();
     else if (m.type === 'error') {
@@ -159,7 +162,7 @@ export function playH265Live(canvas, url, { onPlaying = () => {}, onWaiting = ()
     }
   }).then((w) => {
     worker = w;
-    if (closed) w.postMessage({ type: 'destroy' });
+    if (closed) w.terminate();
     else follow();
   }, (err) => giveUp(`wasm: ${err.message}`));
 
@@ -185,6 +188,7 @@ export class CanvasMedia extends EventTarget {
     this._ctl = null;
     this._buffered = 0;
     this._wake = null; // resolves the reader's wait when the worker has caught up
+    this._gen = 0; // the worker's messages for an older generation were meant for a replaced chunk
     this._worker = startWorker(this.el, 'complete', (m) => this._message(m));
     this._worker.catch((err) => this._fail(`wasm: ${err.message}`));
   }
@@ -224,7 +228,7 @@ export class CanvasMedia extends EventTarget {
 
   destroy() {
     this._stop();
-    this._worker.then((w) => w.postMessage({ type: 'destroy' }), () => {});
+    this._worker.then((w) => w.terminate(), () => {});
   }
 
   _emit(type) {
@@ -237,7 +241,8 @@ export class CanvasMedia extends EventTarget {
     this._ctl = null;
     this._buffered = 0;
     this._wakeReader();
-    this._worker.then((w) => w.postMessage({ type: 'reset' }), () => {});
+    const gen = ++this._gen;
+    this._worker.then((w) => w.postMessage({ type: 'reset', gen }), () => {});
   }
 
   _wakeReader() {
@@ -254,6 +259,7 @@ export class CanvasMedia extends EventTarget {
   }
 
   _message(m) {
+    if (m.gen !== undefined && m.gen !== this._gen) return; // posted for a chunk already replaced
     if (m.type === 'playing') this._emit('playing');
     else if (m.type === 'waiting') this._emit('waiting');
     else if (m.type === 'time') {

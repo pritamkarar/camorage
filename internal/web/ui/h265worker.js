@@ -5,7 +5,8 @@
 //        init {data, maxQueuedS?}, fragment {data}, end, play, pause, reset (a new stream, a new
 //        init comes next), destroy
 //   out: playing, waiting, time {t: seconds since the stream's first frame}, buffered {seconds},
-//        ended, error {reason}
+//        ended, error {reason} — each stamped with gen, the generation of the last reset, so the
+//        page can drop what was posted for a stream it already replaced
 // A worker's timers are not throttled like a hidden page's animation frames, so a background tab
 // keeps decoding instead of piling frames up.
 import createDe265 from './vendor/hevc/de265.js';
@@ -27,11 +28,12 @@ let ended = false;
 let waiting = false;
 let painted = false;
 let failed = false;
+let gen = 0;
 let firstT = null;
 let timer = null;
 let lastDecodeMs = 0;
 
-const post = (type, data) => self.postMessage({ type, ...data });
+const post = (type, data) => self.postMessage({ type, ...data, gen });
 
 function fail(reason) {
   if (failed) return;
@@ -86,6 +88,7 @@ async function handle(m) {
     clearTimeout(timer);
     timer = null;
   } else if (m.type === 'reset') {
+    gen = m.gen;
     clearTimeout(timer);
     timer = null;
     paused = mode !== 'live'; // a new chunk waits for play, as at start
