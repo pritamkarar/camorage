@@ -39,6 +39,7 @@ export async function renderPlayback(root) {
   const state = { cam: first.id, date: todayIn(off), spans: [], events: [], cloud: [], winStart: 0, winLen: DAY_MS, playhead: null };
   let chunkStart = null;
   let chunkCam = null; // the camera chunkStart belongs to
+  let cloudClip = false; // a cloud copy is in the <video> (it does not chain into a next chunk)
   let clipFrom = null; // ms where the playing recording begins: the player bar's clock
 
   const camSel = h('select', { 'aria-label': 'Camera', onchange: () => { state.cam = camSel.value; load(); } },
@@ -208,6 +209,7 @@ export async function renderPlayback(root) {
   function play(from) {
     chunkStart = from;
     chunkCam = state.cam;
+    cloudClip = false;
     use(fallbackCams.has(state.cam) ? decoderMedia() : video);
     const q = `cam=${encodeURIComponent(state.cam)}&start=${encodeURIComponent(isoAt(from, off))}&duration=${CHUNK_S}`;
     start(`/api/playback/video?${q}&format=fmp4`, from);
@@ -219,6 +221,7 @@ export async function renderPlayback(root) {
 
   function playCloud(c, t) {
     chunkStart = null; // a cloud clip does not chain into the next chunk
+    cloudClip = true;
     use(video); // cloud clips are plain MP4: always the <video>
     const url = `/api/playback/cloud?cam=${encodeURIComponent(state.cam)}&date=${state.date}&file=${encodeURIComponent(c.file)}`;
     start(url, c.from);
@@ -301,7 +304,15 @@ export async function renderPlayback(root) {
     // Both are about the chunk's own camera, which may no longer be the one picked.
     on('error', () => {
       box.classList.remove('loading');
-      if (chunkStart == null) return;
+      if (chunkStart == null) {
+        // a cloud clip that fails (an H.265 camera's, in a browser without H.265) says so too
+        if (cloudClip && media === video) {
+          cloudClip = false;
+          label.textContent = 'This recording could not be played here. Try another moment, or use Download.';
+          api('/api/status').catch(() => {});
+        }
+        return;
+      }
       if (media === video && chunkCam === state.cam && !fallbackCams.has(chunkCam) && fallbackAvailable() && !h265Supported()) {
         fallbackCams.add(chunkCam);
         play(chunkStart);
