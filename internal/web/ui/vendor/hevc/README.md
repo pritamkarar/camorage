@@ -2,7 +2,8 @@
 
 camorage's web UI decodes H.265 in browsers that cannot (for example Chrome on Linux without a
 VA-API GPU decoder) with these files, copied byte-for-byte from
-https://github.com/OpenIPC/hevc-wasm at tag `v0.2.0` (commit `d43ba25`, 2026-09-10), folder `dist/`:
+https://github.com/OpenIPC/hevc-wasm at tag `v0.2.0` (commit `d43ba2504a4a9e18e6658bcd15ad62a84188153f`,
+2026-09-10), folder `dist/`:
 
 | File | Licence | sha256 |
 |---|---|---|
@@ -17,11 +18,20 @@ https://github.com/OpenIPC/hevc-wasm at tag `v0.2.0` (commit `d43ba25`, 2026-09-
 
 ## Rebuilding de265.wasm (your LGPL right to relink)
 
-`de265.wasm` is built from https://github.com/OpenIPC/libde265 (a fork of strukturag/libde265) with
-emscripten, single-threaded with WASM SIMD, exactly as hevc-wasm's README describes:
+The corresponding source of `de265.wasm` is:
+
+- **libde265**: https://github.com/OpenIPC/libde265 (a fork of strukturag/libde265) at commit
+  `4f010a9a18e875ddc2aff41227c77a55a2fc8935` (2021-05-12, the fork's `master`; it has not changed
+  since, so it is the revision hevc-wasm v0.2.0 was built from);
+- **the wrapper and build script**: hevc-wasm `src/de265_wrapper.c` and `tools/build.sh` at commit
+  `d43ba2504a4a9e18e6658bcd15ad62a84188153f` (tag `v0.2.0`).
+
+It is built with emscripten (hevc-wasm does not record which version), single-threaded with WASM
+SIMD, as hevc-wasm's README describes:
 
 ```sh
 git clone https://github.com/OpenIPC/libde265 ../libde265
+git -C ../libde265 checkout 4f010a9a18e875ddc2aff41227c77a55a2fc8935
 emcmake cmake -H../libde265 -B../libde265/build-wasm \
   -DCMAKE_BUILD_TYPE=Release -DBUILD_SHARED_LIBS=OFF \
   -DDISABLE_TOOLS=ON -DENABLE_SDL=OFF -DENABLE_THREADS=OFF \
