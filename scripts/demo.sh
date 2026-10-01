@@ -3,6 +3,7 @@
 # long name and URL) and a folder standing in for cloud storage.
 #   scripts/demo.sh          →  http://127.0.0.1:18090, password demo-password. Ctrl-C stops it all.
 #   scripts/demo.sh --fresh  →  the same, not set up yet: it shows the first-run screen.
+#   DEMO_H265=1 scripts/demo.sh  →  Front door sends H.265 (for the in-browser H.265 decoder)
 # MediaMTX uses fixed ports (8554, 8888, 8889, 9997): don't run it together with scripts/itest.sh.
 set -euo pipefail
 MODE=${1:-} # read now: the camera loop below reuses $1
@@ -23,7 +24,11 @@ sleep 2
 for p in "cam 1280x720 testsrc2" "camsub 640x360 testsrc2" "cam2 1280x720 smptehdbars"; do
   # shellcheck disable=SC2086 # split "path size source" into $1 $2 $3
   set -- $p
-  ffmpeg -nostdin -loglevel error -re -f lavfi -i "$3=size=$2:rate=20" -c:v libx264 -preset ultrafast -tune zerolatency -g 40 \
+  enc=(-c:v libx264 -preset ultrafast -tune zerolatency -g 40)
+  if [ "${DEMO_H265:-}" = 1 ] && [ "$1" != cam2 ]; then # Front door (cam, camsub): H.265, no B-frames
+    enc=(-c:v libx265 -preset ultrafast -x265-params keyint=40:min-keyint=40:scenecut=0:bframes=0:log-level=error)
+  fi
+  ffmpeg -nostdin -loglevel error -re -f lavfi -i "$3=size=$2:rate=20" "${enc[@]}" \
     -f rtsp -rtsp_transport tcp "rtsp://127.0.0.1:18564/$1" &
 done
 
