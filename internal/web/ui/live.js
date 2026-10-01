@@ -1,6 +1,7 @@
 import { h, api, playHLS, icon, chip, setChip, pageHead, emptyState, skel } from './dom.js';
-import { camStatus, plural, streamPaths, unplayableNote } from './lib.js';
+import { camStatus, plural, streamPaths, unplayableNote, isH265Reason } from './lib.js';
 import { playWHEP } from './whep.js';
+import { needsFallback, fallbackAvailable, playH265Live } from './h265.js';
 
 // webrtcUnreachable remembers, for this page load, that WebRTC could not reach the phone (usually
 // through Cloudflare from outside), so later full-screen views go straight to HLS.
@@ -12,7 +13,9 @@ let webrtcUnreachable = false;
 export async function renderLive(root) {
   const wait = h('div', {}, pageHead('Live', ''), h('div', { class: 'grid' }, skel('video'), skel('video')));
   root.append(wait);
-  const all = await api('/api/cameras').finally(() => wait.remove());
+  const [all, st0] = await Promise.all([api('/api/cameras'), api('/api/status').catch(() => ({ cameras: [] }))])
+    .finally(() => wait.remove());
+  const codecs = new Map(st0.cameras.map((c) => [c.id, c.codecs || {}])); // kept fresh by refresh()
   const cams = all.filter((c) => c.enabled);
   const head = pageHead('Live', plural(cams.length, 'camera'));
   root.append(head);
@@ -41,7 +44,8 @@ export async function renderLive(root) {
     }, video, h('figcaption', {}, h('span', {}, cam.name), badge));
     grid.append(tile);
     loadingUntilPlaying(tile, video);
-    players.push(playHLS(video, `/live/hls/${streamPaths(cam).tile}/index.m3u8`, (why) => unplayable(tile, video, why)));
+    const c = codecs.get(cam.id) || {};
+    players.push(watch(tile, video, `/live/hls/${streamPaths(cam).tile}/index.m3u8`, cam.subUrl ? c.sub : c.main));
   }
   root.append(grid);
 
@@ -50,6 +54,7 @@ export async function renderLive(root) {
       const st = await api('/api/status');
       let recording = 0;
       for (const c of st.cameras) {
+        codecs.set(c.id, c.codecs || {});
         if (c.enabled && c.recording) recording++;
         const badge = badges.get(c.id);
         if (badge) setChip(badge, camStatus(c));
@@ -82,24 +87,31 @@ export async function renderLive(root) {
     full = me;
     const path = streamPaths(cam).full;
     const hlsURL = `/live/hls/${path}/index.m3u8`;
+    const tracks = (codecs.get(cam.id) || {}).main;
+    const inBrowser = () => { mode.textContent = 'H.265 · in browser'; };
     let player = null;
-    if (!webrtcUnreachable) {
-      // Start MediaMTX's HLS muxer now, so a fallback does not also wait for it to warm up.
-      fetch(hlsURL, { credentials: 'same-origin' }).catch(() => {});
-      try {
-        player = await playWHEP(video, `/live/whep/${path}`, 4000, () => {
-          if (full === me) openFull(cam); // the WebRTC connection died: reconnect (WebRTC, else HLS)
-        });
-        mode.textContent = 'WebRTC';
-      } catch (err) {
-        // e.g. through Cloudflare from outside: don't wait for it again. A codec this browser
-        // cannot decode is this camera's problem, not WebRTC's; HLS may still decode it.
-        if (!err.codec) webrtcUnreachable = true;
+    if (needsFallback(tracks)) {
+      player = watch(box, video, hlsURL, tracks, inBrowser); // MediaMTX would refuse WebRTC this codec
+      inBrowser();
+    } else {
+      if (!webrtcUnreachable) {
+        // Start MediaMTX's HLS muxer now, so a fallback does not also wait for it to warm up.
+        fetch(hlsURL, { credentials: 'same-origin' }).catch(() => {});
+        try {
+          player = await playWHEP(video, `/live/whep/${path}`, 4000, () => {
+            if (full === me) openFull(cam); // the WebRTC connection died: reconnect (WebRTC, else HLS)
+          });
+          mode.textContent = 'WebRTC';
+        } catch (err) {
+          // e.g. through Cloudflare from outside: don't wait for it again. A codec this browser
+          // cannot decode is this camera's problem, not WebRTC's; HLS (or the H.265 decoder) may.
+          if (!err.codec) webrtcUnreachable = true;
+        }
       }
-    }
-    if (!player) {
-      player = playHLS(video, hlsURL, (why) => unplayable(box, video, why));
-      mode.textContent = 'HLS';
+      if (!player) {
+        player = watch(box, video, hlsURL, tracks, inBrowser); // inBrowser() relabels it if hls.js reports H.265
+        mode.textContent = 'HLS';
+      }
     }
     if (full !== me) {
       player.close(); // closed while connecting
@@ -117,10 +129,37 @@ export async function renderLive(root) {
     full = null;
   }
 
-  // unplayable puts a note in place of a video this browser cannot decode.
-  function unplayable(box, video, why) {
+  // watch plays url in box: through hls.js in video, or — for an H.265 stream this browser can't
+  // decode — through the in-browser decoder on a canvas that takes video's place. A stream whose
+  // codec was unknown (camera offline when the page opened) switches when hls.js reports H.265.
+  // onInBrowser runs when the decoder takes over. Returns { close }.
+  function watch(box, video, url, tracks, onInBrowser = () => {}) {
+    let player;
+    const inBrowser = () => {
+      const canvas = h('canvas', {});
+      video.replaceWith(canvas);
+      box.classList.add('loading');
+      onInBrowser();
+      player = playH265Live(canvas, url, {
+        onPlaying: () => box.classList.remove('loading'),
+        onWaiting: () => box.classList.add('loading'),
+        onUnplayable: (why) => unplayable(box, canvas, why),
+      });
+    };
+    if (needsFallback(tracks)) inBrowser();
+    else {
+      player = playHLS(video, url, (why) => {
+        if (isH265Reason(why) && fallbackAvailable()) inBrowser();
+        else unplayable(box, video, why);
+      });
+    }
+    return { close: () => player.close() };
+  }
+
+  // unplayable puts a note in place of a video (or canvas) this browser cannot play.
+  function unplayable(box, el, why) {
     box.classList.remove('loading');
-    video.replaceWith(h('p', { class: 'unplayable', role: 'status' }, icon('i-live'), unplayableNote(why)));
+    el.replaceWith(h('p', { class: 'unplayable', role: 'status' }, icon('i-live'), unplayableNote(why)));
   }
 
   // loadingUntilPlaying shimmers box until video shows frames, and again whenever it starts

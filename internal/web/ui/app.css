@@ -177,6 +177,7 @@ table.table { width: 100%; border-collapse: collapse; font-size: 13.5px; overflo
 .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(320px, 100%), 1fr)); gap: 16px; }
 .tile { position: relative; margin: 0; border-radius: var(--radius); overflow: hidden; background: #000; box-shadow: var(--shadow); cursor: pointer; }
 .tile video { display: block; width: 100%; aspect-ratio: 16 / 9; background: #000; }
+.tile canvas { display: block; width: 100%; aspect-ratio: 16 / 9; background: #000; object-fit: contain; }
 .tile figcaption { position: absolute; inset: auto 0 0 0; display: flex; justify-content: space-between; align-items: center; gap: 8px; padding: 22px 12px 10px; color: #fff; font-weight: 600; background: linear-gradient(transparent, rgba(0, 0, 0, .7)); overflow-wrap: anywhere; }
 .unplayable { display: grid; place-content: center; justify-items: center; gap: 8px; margin: 0; padding: 16px 16px 52px; aspect-ratio: 16 / 9; background: #000; color: #fff; text-align: center; text-wrap: balance; font-size: 14px; }
 .unplayable .icon { color: rgba(255, 255, 255, .6); }
@@ -189,10 +190,12 @@ table.table { width: 100%; border-collapse: collapse; font-size: 13.5px; overflo
 .full-bar .icon-btn { margin-left: auto; background: rgba(255, 255, 255, .1); border-color: transparent; color: #fff; }
 .video-box { position: relative; overflow: hidden; border-radius: var(--radius); background: #000; }
 .full video { display: block; width: 100%; max-height: 80vh; background: #000; border-radius: var(--radius); }
+.full canvas { display: block; width: 100%; max-height: 80vh; background: #000; object-fit: contain; }
 
 /* playback */
 .player-box { box-shadow: var(--shadow); }
 .player { display: block; width: 100%; max-height: 64vh; background: #000; cursor: pointer; }
+canvas.player { object-fit: contain; }
 .player-bar { position: absolute; inset: auto 0 0 0; display: flex; align-items: center; gap: 8px; padding: 20px 10px 10px; background: linear-gradient(transparent, rgba(0, 0, 0, .65)); color: #fff; font-size: 13px; font-weight: 600; font-variant-numeric: tabular-nums; }
 .player-bar .icon-btn { background: rgba(255, 255, 255, .14); border-color: transparent; color: #fff; }
 .player-bar .icon-btn:hover { background: rgba(255, 255, 255, .26); }
