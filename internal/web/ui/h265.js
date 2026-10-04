@@ -172,8 +172,8 @@ export function playH265Live(canvas, url, { onPlaying = () => {}, onWaiting = ()
 // CanvasMedia plays recording chunks (fMP4, /api/playback/video?format=fmp4) through the in-browser
 // decoder on a <canvas>, every frame in turn, reading ahead at most BUFFER_S. It looks like the
 // parts of <video> the Playback page uses: src, currentSrc, play(), pause(), paused, currentTime
-// (seconds since the chunk's first frame), muted, error, load(), removeAttribute('src'), and the
-// events play, pause, playing, waiting, timeupdate, ended, error.
+// (seconds since the chunk's first frame), playbackRate (kept across chunks), muted, error, load(),
+// removeAttribute('src'), and the events play, pause, playing, waiting, timeupdate, ended, error.
 export class CanvasMedia extends EventTarget {
   constructor() {
     super();
@@ -183,6 +183,7 @@ export class CanvasMedia extends EventTarget {
     this.currentTime = 0;
     this.muted = true;
     this.error = null;
+    this._rate = 1;
     this._src = '';
     this._run = 0;
     this._ctl = null;
@@ -205,6 +206,13 @@ export class CanvasMedia extends EventTarget {
   }
 
   get currentSrc() { return this._src; }
+
+  get playbackRate() { return this._rate; }
+
+  set playbackRate(rate) {
+    this._rate = rate;
+    this._worker.then((w) => w.postMessage({ type: 'rate', rate }), () => {});
+  }
 
   removeAttribute(name) {
     if (name === 'src') this.src = '';

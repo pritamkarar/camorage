@@ -1,9 +1,11 @@
 import { h, api, icon, pageHead, emptyState, showError, skel } from './dom.js';
 import { CanvasMedia, needsFallback, fallbackAvailable, h265Supported } from './h265.js';
-import { DAY_MS, addDays, autoStart, blocks, clock, cloudSpans, dayStart, eventSpans, isoAt, nextChunk, offsetOf, playFrom, plural, spanAt, toSpans, todayIn } from './lib.js';
+import { DAY_MS, addDays, autoStart, blocks, clock, cloudSpans, dayStart, eventSpans, isoAt, nextChunk, offsetOf, playFrom, plural, skipTarget, spanAt, toSpans, todayIn } from './lib.js';
 
 const CHUNK_S = 600; // each <video> source is 10 minutes; the next one loads when it ends
 const HOUR_MS = 3600 * 1000;
+const SKIP_MS = 10000; // the player bar's back and forward buttons (and the ← → keys)
+const SPEEDS = [1, 2, 4, 8]; // the speed button steps through these
 
 // longDate shows a phone-local date (YYYY-MM-DD) in words, e.g. "Wed, 1 Oct 2026". Noon UTC of
 // that date is the same calendar day in every timezone.
@@ -13,8 +15,9 @@ const longDate = (date) => new Date(`${date}T12:00:00Z`).toLocaleDateString(unde
 // renderPlayback shows a 24 h timeline (zoomable to 1 h) of what a camera recorded on a day, in
 // the phone's local time. Clicking plays from that moment and continues chunk by chunk. The
 // timeline is the only seekbar (a native one would only span the current chunk); the player has
-// its own play/pause and fullscreen. Opening the page plays by itself: the camera with today's
-// latest motion event from just before it, else the first camera's last minute recorded.
+// its own play/pause, 10 s skips, speed and fullscreen. Opening the page plays by itself: the camera
+// with today's latest motion event from just before it, else the first camera's last minute
+// recorded. Picking another camera or day plays its latest motion event (or last minute) too.
 export async function renderPlayback(root) {
   const wait = h('div', {}, pageHead('Playback', ''), skel('video'), skel('timeline'));
   root.append(wait);
@@ -42,10 +45,10 @@ export async function renderPlayback(root) {
   let cloudClip = false; // a cloud copy is in the <video> (it does not chain into a next chunk)
   let clipFrom = null; // ms where the playing recording begins: the player bar's clock
 
-  const camSel = h('select', { 'aria-label': 'Camera', onchange: () => { state.cam = camSel.value; load(); } },
+  const camSel = h('select', { 'aria-label': 'Camera', onchange: () => { state.cam = camSel.value; load(true); } },
     cams.map((c) => h('option', { value: c.id }, c.name)));
   camSel.value = state.cam;
-  const dateIn = h('input', { type: 'date', 'aria-label': 'Day', value: state.date, onchange: () => { state.date = dateIn.value; load(); } });
+  const dateIn = h('input', { type: 'date', 'aria-label': 'Day', value: state.date, onchange: () => { state.date = dateIn.value; load(true); } });
   const prevBtn = h('button', { class: 'icon-btn', onclick: () => step(-1) }, icon('i-chevron-left'));
   const zoomBtn = h('button', { onclick: () => zoom() }, 'Zoom to 1 h');
   const nextBtn = h('button', { class: 'icon-btn', onclick: () => step(1) }, icon('i-chevron-right'));
@@ -55,25 +58,34 @@ export async function renderPlayback(root) {
   let canvasMedia = null; // made the first time a camera needs the H.265 decoder
   let media = video; // what is in the player box now: the <video>, or canvasMedia
   const playBtn = h('button', { class: 'icon-btn', 'aria-label': 'Play', disabled: true, onclick: () => togglePlay() }, icon('i-play'));
+  const backBtn = h('button', { class: 'icon-btn', 'aria-label': 'Back 10 seconds', title: 'Back 10 s (←)', disabled: true, onclick: () => skip(-1) }, icon('i-rewind'));
+  const fwdBtn = h('button', { class: 'icon-btn', 'aria-label': 'Forward 10 seconds', title: 'Forward 10 s (→)', disabled: true, onclick: () => skip(1) }, icon('i-forward'));
   const timeEl = h('span', {});
+  let speed = 1; // kept across chunks and cameras while the page is open
+  const speedBtn = h('button', { class: 'icon-btn', 'aria-label': 'Speed 1×', title: 'Playback speed', onclick: () => faster() }, '1×');
   const fullBtn = h('button', { class: 'icon-btn', 'aria-label': 'Full screen', onclick: () => toggleFull() }, icon('i-fullscreen'));
   const box = h('div', { class: 'video-box player-box' }, video,
-    h('div', { class: 'player-bar' }, playBtn, timeEl, h('span', { class: 'spacer' }), fullBtn));
+    h('div', { class: 'player-bar' }, backBtn, playBtn, fwdBtn, timeEl, h('span', { class: 'spacer' }), speedBtn, fullBtn));
   const bar = h('div', { class: 'timeline', onclick: (e) => click(e) });
   const ticks = h('div', { class: 'ticks' });
   const cloudKey = h('span', { class: 'cloud', hidden: true }, 'In the cloud');
   const dlText = h('span', {}, 'Download these 10 minutes');
   const download = h('a', { class: 'button', hidden: true, download: '' }, icon('i-download'), dlText);
   const label = h('p', { class: 'muted' }, 'Click the timeline to play.');
+  let noteUntil = 0; // a note in label stays this long before "Playing …" may replace it
+  const note = (text) => { label.textContent = text; noteUntil = Date.now() + 3000; };
   root.append(head, box, h('div', { class: 'scrub' }, prevBtn, h('div', {}, bar, ticks), nextBtn),
     h('div', { class: 'play-foot' },
       h('div', { class: 'legend' }, h('span', {}, 'Recorded'), h('span', { class: 'motion' }, 'Motion'), cloudKey),
       download),
     label);
 
+  // load shows the picked camera and day. autoplay (opening the page, another camera or day) stops
+  // what was playing and then plays the latest motion event (or last minute) of the new pick.
   let loads = 0;
-  async function load() {
+  async function load(autoplay = false) {
     const mine = ++loads;
+    if (autoplay) stop();
     state.winStart = dayStart(state.date, off);
     state.winLen = DAY_MS;
     bar.replaceChildren();
@@ -93,6 +105,10 @@ export async function renderPlayback(root) {
     state.cloud = [];
     shown();
     loadCloud(state.cam, state.date); // answers later, or not at all: the phone's own recordings are drawn first
+    if (!autoplay) return;
+    const cam = cams.find((c) => c.id === state.cam);
+    const t = autoStart(state.spans, state.events, ((cam && cam.motion && cam.motion.preRollSec) || 0) * 1000);
+    if (t != null) play(t);
   }
 
   async function loadCloud(cam, date) {
@@ -150,7 +166,7 @@ export async function renderPlayback(root) {
     }
     state.date = addDays(state.date, dir);
     dateIn.value = state.date;
-    load();
+    load(true);
   }
 
   function clampHour(start) {
@@ -186,7 +202,7 @@ export async function renderPlayback(root) {
     }
     const from = playFrom(state.spans, t);
     if (from == null) {
-      label.textContent = 'Nothing was recorded after this point.';
+      note('Nothing was recorded after this point.');
       return;
     }
     play(from);
@@ -195,6 +211,7 @@ export async function renderPlayback(root) {
   // start plays url, a recording that begins at from (ms), in the player.
   function start(url, from) {
     clipFrom = from;
+    noteUntil = 0;
     media.src = url;
     media.play().catch((err) => {
       if (err.name !== 'NotAllowedError') return;
@@ -202,8 +219,48 @@ export async function renderPlayback(root) {
       media.play().catch(() => {});
     });
     box.classList.add('loading');
-    playBtn.disabled = false;
+    playBtn.disabled = backBtn.disabled = fwdBtn.disabled = false;
     timeEl.textContent = clock(from, off);
+  }
+
+  // stop empties the player, as before anything played.
+  function stop() {
+    chunkStart = null;
+    cloudClip = false;
+    clipFrom = null;
+    state.playhead = null;
+    use(video); // an emptied canvas would go on showing its last picture
+    media.pause();
+    media.removeAttribute('src');
+    media.load();
+    box.classList.remove('loading');
+    playBtn.disabled = backBtn.disabled = fwdBtn.disabled = true;
+    timeEl.textContent = '';
+    download.hidden = true;
+  }
+
+  // skip moves the playhead SKIP_MS back (dir -1) or forward (1): a cloud clip within itself, a
+  // recording by starting a new chunk there (a chunk is streamed, so it cannot seek), over gaps.
+  function skip(dir) {
+    if (!media.currentSrc) return;
+    if (cloudClip) {
+      video.currentTime = Math.max(0, video.currentTime + (dir * SKIP_MS) / 1000); // the browser stops at the end
+      return;
+    }
+    const at = chunkStart != null ? chunkStart + media.currentTime * 1000 : state.playhead; // the playhead also after a failed chunk
+    if (at == null) return;
+    const t = skipTarget(state.spans, at, dir * SKIP_MS);
+    if (t == null) note(dir > 0 ? 'Nothing was recorded after this point.' : 'Nothing was recorded before this point.');
+    else play(t);
+  }
+
+  // faster steps the speed through SPEEDS, back to 1× after the last.
+  function faster() {
+    speed = SPEEDS[(SPEEDS.indexOf(speed) + 1) % SPEEDS.length];
+    video.defaultPlaybackRate = video.playbackRate = speed; // the default survives a new source
+    if (canvasMedia) canvasMedia.playbackRate = speed;
+    speedBtn.textContent = `${speed}×`;
+    speedBtn.setAttribute('aria-label', `Speed ${speed}×`);
   }
 
   function play(from) {
@@ -246,6 +303,7 @@ export async function renderPlayback(root) {
   function decoderMedia() {
     if (!canvasMedia) {
       canvasMedia = new CanvasMedia();
+      canvasMedia.playbackRate = speed;
       canvasMedia.el.addEventListener('click', () => togglePlay());
       listen(canvasMedia);
     }
@@ -271,6 +329,14 @@ export async function renderPlayback(root) {
     fullBtn.setAttribute('aria-label', on ? 'Exit full screen' : 'Full screen');
   };
   document.addEventListener('fullscreenchange', onFullscreen);
+  // ← and → skip, unless the key is for a field (the camera list, the day).
+  const onKey = (e) => {
+    if ((e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') || e.altKey || e.ctrlKey || e.metaKey || e.shiftKey) return;
+    if (e.target.closest && e.target.closest('input, select, textarea, [contenteditable]')) return;
+    e.preventDefault();
+    skip(e.key === 'ArrowLeft' ? -1 : 1);
+  };
+  document.addEventListener('keydown', onKey);
 
   const playing = (on) => {
     playBtn.replaceChildren(icon(on ? 'i-pause' : 'i-play'));
@@ -288,7 +354,9 @@ export async function renderPlayback(root) {
       if (clipFrom != null) timeEl.textContent = clock(clipFrom + media.currentTime * 1000, off);
       if (chunkStart == null) return;
       state.playhead = chunkStart + media.currentTime * 1000;
-      label.textContent = `Playing ${clock(state.playhead, off)}`;
+      const last = state.spans[state.spans.length - 1];
+      if (last && state.playhead > last.to) last.to = state.playhead; // still recording: it grew since the page loaded it
+      if (Date.now() >= noteUntil) label.textContent = `Playing ${clock(state.playhead, off)}`;
       draw();
     });
     on('ended', () => {
@@ -326,15 +394,11 @@ export async function renderPlayback(root) {
   }
   listen(video);
 
-  await load();
-  if (loads === 1) { // still the opening camera and day: nobody picked another meanwhile
-    const preRoll = ((first.motion && first.motion.preRollSec) || 0) * 1000;
-    const t = autoStart(state.spans, state.events, preRoll);
-    if (t != null) play(t);
-  }
+  await load(true);
   return () => {
     chunkStart = null;
     document.removeEventListener('fullscreenchange', onFullscreen);
+    document.removeEventListener('keydown', onKey);
     if (document.fullscreenElement === box) document.exitFullscreen().catch(() => {});
     media.removeAttribute('src');
     media.load();

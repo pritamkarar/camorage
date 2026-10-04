@@ -2,8 +2,8 @@
 // picture ever crosses a thread. The page sends an init segment and fragments; frames are decoded
 // with de265.wasm and painted at their media times (pacer.js).
 //   in:  start {canvas: OffscreenCanvas, module: WebAssembly.Module, mode: 'live' | 'complete'},
-//        init {data, maxQueuedS?}, fragment {data}, end, play, pause, reset (a new stream, a new
-//        init comes next), destroy
+//        init {data, maxQueuedS?}, fragment {data}, end, play, pause, rate {rate} (the speed, kept
+//        across resets), reset (a new stream, a new init comes next), destroy
 //   out: playing, waiting, time {t: seconds since the stream's first frame}, buffered {seconds},
 //        ended, error {reason} — each stamped with gen, the generation of the last reset, so the
 //        page can drop what was posted for a stream it already replaced
@@ -21,6 +21,7 @@ let dec = null;
 let init = null;
 let mode = 'live';
 let maxQueuedS = 6;
+let rate = 1;
 let queue = [];
 let clock = null;
 let paused = true;
@@ -83,6 +84,9 @@ async function handle(m) {
     paused = false;
     clock = null;
     schedule(0);
+  } else if (m.type === 'rate') {
+    rate = m.rate;
+    clock = null; // the next frame anchors a clock at the new speed
   } else if (m.type === 'pause') {
     paused = true;
     clearTimeout(timer);
@@ -121,7 +125,7 @@ function tick() {
   timer = null;
   if (paused || failed) return;
   try {
-    const r = next(queue, clock, performance.now(), mode, maxQueuedS);
+    const r = next(queue, clock, performance.now(), mode, maxQueuedS, rate);
     if (r.do === 'idle') {
       if (ended) {
         paused = true;

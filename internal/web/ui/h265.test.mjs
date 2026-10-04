@@ -67,3 +67,15 @@ test('closing a player terminates its worker', async () => {
   await settle();
   assert.equal(lw.terminated, true, 'playH265Live close');
 });
+
+test('the canvas player passes its speed to the worker, and keeps it', async () => {
+  const cm = new CanvasMedia();
+  await settle();
+  const w = workers[workers.length - 1];
+  assert.equal(cm.playbackRate, 1);
+  cm.playbackRate = 4;
+  await settle();
+  assert.equal(cm.playbackRate, 4);
+  assert.deepEqual(w.got.filter((m) => m.type === 'rate').map((m) => m.rate), [4]);
+  cm.destroy();
+});

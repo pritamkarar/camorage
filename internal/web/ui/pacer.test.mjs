@@ -81,3 +81,12 @@ test('live on a too-slow machine stays within about two segments of real time', 
   }
   assert.ok(behind < 2 * SEG, `fell ${behind.toFixed(1)} s behind real time`);
 });
+
+test('at 2x media time runs twice as fast: a frame 0.5 s on is due 250 ms later', () => {
+  const clock = anchor(0, 1000);
+  assert.equal(dueAt(clock, 0.5, 2), 1250);
+  assert.equal(dueAt(clock, 1, 4), 1250);
+  const queue = [{ t: 0.5, key: false }];
+  assert.deepEqual(next(queue, clock, 1200, 'complete', 6, 2), { do: 'wait', ms: 50 });
+  assert.deepEqual(next(queue, clock, 1250, 'complete', 6, 2), { do: 'decode', clock });
+});

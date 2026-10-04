@@ -4,7 +4,7 @@ import {
   DAY_MS, offsetOf, dayStart, todayIn, isoAt, clock, toSpans, blocks, playFrom,
   scheduleSummary, cleanWindows, streamPaths, nextChunk, tailscaleSummary, cloudflareSummary, expandMask, compactMask, cellAt, eventSpans, cloudSpans, spanAt,
   plural, diskUse, camStatus, storageSplit, cameraSummary, tunnelChip, installChoice, unplayableNote, addDays, autoStart,
-  isH265Reason, usesH265, firstVariant, mediaPlaylist,
+  isH265Reason, usesH265, firstVariant, mediaPlaylist, skipTarget,
 } from './lib.js';
 
 const IST = '+05:30';
@@ -266,4 +266,17 @@ test('firstVariant and mediaPlaylist read MediaMTX playlists', () => {
       { seq: 9, url: 'http://phone:8080/live/hls/cam_sub/9d32_video1_seg9.mp4?session=abc' },
     ],
   });
+});
+
+test('skipTarget: 10 s steps through a day of recordings, over the gaps', () => {
+  const S = 1000;
+  const spans = [{ from: 0, to: 100 * S }, { from: 200 * S, to: 300 * S }];
+  assert.equal(skipTarget(spans, 50 * S, 10 * S), 60 * S, 'forward inside a recording');
+  assert.equal(skipTarget(spans, 50 * S, -10 * S), 40 * S, 'back inside a recording');
+  assert.equal(skipTarget(spans, 95 * S, 10 * S), 200 * S, 'forward over a gap: the next recording');
+  assert.equal(skipTarget(spans, 205 * S, -10 * S), 90 * S, 'back over a gap: 10 s before the previous one ends');
+  assert.equal(skipTarget([{ from: 0, to: 5 * S }, { from: 200 * S, to: 300 * S }], 205 * S, -10 * S), 0, 'a previous recording shorter than 10 s: its start');
+  assert.equal(skipTarget(spans, 295 * S, 10 * S), null, 'forward past the last recording: nowhere');
+  assert.equal(skipTarget(spans, 5 * S, -10 * S), 0, 'back before the first recording: its start');
+  assert.equal(skipTarget(spans, 0, -10 * S), null, 'back from the very start: nowhere');
 });

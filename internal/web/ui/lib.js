@@ -76,6 +76,18 @@ export function nextChunk(spans, chunkStart, playedMs) {
   return playFrom(spans, chunkStart + playedMs);
 }
 
+// skipTarget is where a skip of deltaMs from t lands in spans (sorted, apart): the same moment if it
+// was recorded, else across the gap: forward to the next recording's start, back to deltaMs before
+// the previous one ends (or its start), before the first one to its start. null: nowhere to go.
+export function skipTarget(spans, t, deltaMs) {
+  const to = t + deltaMs;
+  if (deltaMs >= 0) return playFrom(spans, to);
+  if (spanAt(spans, to)) return to;
+  const prev = spans.filter((s) => s.to <= to).pop();
+  if (prev) return Math.max(prev.from, prev.to + deltaMs);
+  return spans.length && spans[0].from < t ? spans[0].from : null;
+}
+
 // scheduleSummary describes schedule windows, e.g. "Mon–Fri 20:00–08:00"; no windows = "Always".
 export function scheduleSummary(windows) {
   if (!windows || windows.length === 0) return 'Always';
